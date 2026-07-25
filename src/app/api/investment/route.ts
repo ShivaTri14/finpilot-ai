@@ -64,7 +64,7 @@ export async function POST(req: Request) {
 
     try {
       const llmApiKey = process.env.LLM_API_KEY;
-      if (llmApiKey) {
+      if (llmApiKey && llmApiKey !== "your-llm-api-key") {
         const prompt = `You are FinPilot AI, a Senior Financial Coach and Chartered Accountant advisor.
 Analyze the following DETERMINISTICALLY CALCULATED investment strategy for a ${inputs.age}-year-old user with a ${inputs.riskAppetite} Risk Profile:
 
@@ -76,10 +76,11 @@ Analyze the following DETERMINISTICALLY CALCULATED investment strategy for a ${i
 - Achievement Confidence Likelihood: ${results.achievementLikelihood}%
 - Recommended Asset Allocation: ${results.equityPercent}% Equity (Mutual Funds / Stocks), ${results.debtPercent}% Debt (Bonds / Fixed Income), ${results.goldPercent}% Gold / Commodities.
 
-Write a professional, structured 3-paragraph financial advisory response explaining:
-1. Why this ${results.equityPercent}% Equity / ${results.debtPercent}% Debt / ${results.goldPercent}% Gold allocation is tailored to their age (${inputs.age}) and ${inputs.riskAppetite} risk appetite.
-2. An assessment of their ${results.achievementLikelihood}% probability of reaching their ${symbol} ${inputs.netWorthGoal.toLocaleString()} goal.
-3. 2 actionable coaching tips to optimize their portfolio compound returns over the next ${inputs.investmentDurationYrs} years.
+Write a professional, structured 4-section financial advisory response detailing:
+1. Asset Allocation Rationale: Why this ${results.equityPercent}% Equity / ${results.debtPercent}% Debt / ${results.goldPercent}% Gold allocation is tailored to their age (${inputs.age}) and ${inputs.riskAppetite} risk appetite.
+2. Specific Actionable Vehicles: List exact fund types to invest in (e.g. Nifty 50 Index Mutual Funds, Flexi-Cap Equity Funds, Short-Duration Debt Funds, Sovereign Gold Bonds / Gold ETFs).
+3. Goal Feasibility Assessment: Explain their ${results.achievementLikelihood}% likelihood of hitting their ${symbol} ${inputs.netWorthGoal.toLocaleString()} Net Worth Goal.
+4. Step-Up SIP Action Plan: How to bridge any deficit (e.g., increasing monthly SIP by 10% annually).
 
 Do NOT change or invent any new numbers — explain ONLY the numbers provided above. Keep your tone encouraging, practical, and highly authoritative.`;
 
@@ -100,17 +101,31 @@ Do NOT change or invent any new numbers — explain ONLY the numbers provided ab
       console.warn("LLM Narrative fallback trigger:", err);
     }
 
-    // Default Fallback Advisory Narrative if API key unavailable
+    // Default Fallback Advisory Narrative with Specific Actionable Guidance
     if (!llmNarrative) {
+      const stepUpSipReq = Math.round(inputs.monthlyInvestment * 1.15);
+
       llmNarrative = `### Asset Allocation & Strategy Breakdown
-Based on your age of **${inputs.age}** and **${inputs.riskAppetite} Risk** appetite, your portfolio is structured with **${results.equityPercent}% Equity**, **${results.debtPercent}% Debt**, and **${results.goldPercent}% Gold**.
+Based on your age of **${inputs.age}** and **${inputs.riskAppetite} Risk** profile, your portfolio is structured with **${results.equityPercent}% Equity**, **${results.debtPercent}% Debt**, and **${results.goldPercent}% Gold**.
 
 - **Equity (${results.equityPercent}%):** Provides capital appreciation over your ${inputs.investmentDurationYrs}-year timeline to beat inflation and compound wealth.
 - **Debt & Fixed Income (${results.debtPercent}%):** Provides capital protection and downside buffer during market downturns.
 - **Gold & Commodities (${results.goldPercent}%):** Serves as a macro hedge against systemic market volatility.
 
-### Goal Achievement Feasibility
-Your monthly SIP contribution of **${symbol} ${inputs.monthlyInvestment.toLocaleString()}** over **${inputs.investmentDurationYrs} years** achieves an estimated corpus of **${symbol} ${results.projectedCorpus.toLocaleString()}**, representing a **${results.achievementLikelihood}% likelihood** of reaching your **${symbol} ${inputs.netWorthGoal.toLocaleString()}** Net Worth Goal.
+### Recommended Where & How to Invest
+1. **Equity Allocation (${results.equityPercent}% $\rightarrow$ ${symbol} ${Math.round((inputs.monthlyInvestment * results.equityPercent) / 100).toLocaleString()}/mo):**
+   - **Nifty 50 Index Mutual Fund** (40%): Low-cost passive compounding.
+   - **Flexi-Cap / Large & Mid-Cap Fund** (20%): Active multi-sector alpha growth.
+2. **Debt Allocation (${results.debtPercent}% $\rightarrow$ ${symbol} ${Math.round((inputs.monthlyInvestment * results.debtPercent) / 100).toLocaleString()}/mo):**
+   - **Banking & PSU Debt Funds / Corporate Bond Funds**: Low-risk fixed-income stability.
+3. **Gold Allocation (${results.goldPercent}% $\rightarrow$ ${symbol} ${Math.round((inputs.monthlyInvestment * results.goldPercent) / 100).toLocaleString()}/mo):**
+   - **Sovereign Gold Bonds (SGB) / Sovereign Gold ETFs**: Tax-efficient commodity hedging.
+
+### Goal Achievement Feasibility & Action Plan
+Your monthly SIP contribution of **${symbol} ${inputs.monthlyInvestment.toLocaleString()}** over **${inputs.investmentDurationYrs} years** achieves an estimated projected corpus of **${symbol} ${results.projectedCorpus.toLocaleString()}**, representing a **${results.achievementLikelihood}% likelihood** of reaching your **${symbol} ${inputs.netWorthGoal.toLocaleString()}** Net Worth Goal.
+
+💡 **Actionable Step-Up SIP Advice:**
+To bridge your target gap and achieve **100% feasibility**, increase your monthly SIP contribution by 10-15% annually as your income grows (e.g. step up to **${symbol} ${stepUpSipReq.toLocaleString()}/mo** in Year 2).
 
 *Disclaimer: Projections are computed using standard SIP compound formulas (${results.expectedAnnualReturn}% p.a. return assumption) and are for educational planning purposes.*`;
     }
