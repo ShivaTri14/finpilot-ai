@@ -62,8 +62,10 @@ export async function POST(req: Request) {
     const currency = (session.user as any)?.currency || "INR";
     const symbol = currency === "USD" ? "$" : currency === "EUR" ? "€" : currency === "GBP" ? "£" : "₹";
 
-    // 1. Try Groq API LLaMA-3.3-70B model if key present
-    const groqApiKey = process.env.GROQ_API_KEY || (process.env.LLM_API_KEY?.startsWith("gsk_") ? process.env.LLM_API_KEY : null);
+    // Connect to Groq API LLaMA-3.3-70B model using process.env
+    const groqApiKey =
+      process.env.GROQ_API_KEY ||
+      (process.env.LLM_API_KEY?.startsWith("gsk_") ? process.env.LLM_API_KEY : null);
 
     if (groqApiKey) {
       try {
@@ -88,7 +90,7 @@ Format your response EXACTLY with these markdown sections and emojis:
 (Detail salary, expenses, savings rate %, and risk profile fit)
 
 ## Recommended Asset Allocation
-(List exact percentage breakdown for Mutual Funds, Index Funds, Debt, Gold, Emergency Reserve)
+(List exact percentage breakdown for Mutual Funds 40%, Index Funds 20%, Gold 10%, Fixed Deposit 5%, PPF 10%, Emergency Fund 15%)
 
 ## Monthly SIP Recommendation
 (Detail monthly SIP split and growth trajectory)
@@ -112,7 +114,7 @@ Format your response EXACTLY with these markdown sections and emojis:
               { role: "user", content: prompt },
             ],
             temperature: 0.7,
-            max_tokens: 1024,
+            max_tokens: 1200,
           }),
         });
 
@@ -130,7 +132,7 @@ Format your response EXACTLY with these markdown sections and emojis:
       const llmApiKey = process.env.LLM_API_KEY;
       if (llmApiKey && llmApiKey !== "your-llm-api-key" && !llmApiKey.startsWith("gsk_")) {
         try {
-          const prompt = `You are FinPilot AI, a Senior Financial Coach and Chartered Accountant advisor.
+          const prompt = `You are FinPilot AI, a Senior Personal Financial Coach and Chartered Accountant advisor.
 Analyze the following investment strategy for a ${inputs.age}-year-old user with a ${inputs.riskAppetite} Risk Profile:
 
 - Monthly Salary: ${symbol} ${inputs.monthlySalary.toLocaleString()}
@@ -179,27 +181,28 @@ Format with sections:
 📘 **Personalized Investment Plan**
 
 ## Financial Health Overview
-You have a monthly salary of **${symbol} ${inputs.monthlySalary.toLocaleString()}** and expenses of **${symbol} ${inputs.monthlyExpenses.toLocaleString()}**, translating to a net savings rate of **${netSavingsRate}%** (${symbol} ${Math.max(0, inputs.monthlySalary - inputs.monthlyExpenses).toLocaleString()}/mo). Your current savings of **${symbol} ${inputs.currentSavings.toLocaleString()}** is a strong starting foundation. Considering your **${inputs.riskAppetite} Risk** profile, we structure high-growth equity assets paired with debt stability and gold hedging.
+You have a monthly salary of **${symbol} ${inputs.monthlySalary.toLocaleString()}** and expenses of **${symbol} ${inputs.monthlyExpenses.toLocaleString()}**, translating to a net savings rate of **${netSavingsRate}%** (${symbol} ${Math.max(0, inputs.monthlySalary - inputs.monthlyExpenses).toLocaleString()}/mo). Your current savings of **${symbol} ${inputs.currentSavings.toLocaleString()}** is a good starting point. Considering your **${inputs.riskAppetite} Risk** profile, we can explore investment options that have the potential for higher returns.
 
 ## Recommended Asset Allocation
-- **Mutual Funds (Growth Equity)**: **${Math.round(results.equityPercent * 0.67)}%** (Flexi-Cap & Large/Mid-Cap Funds to capture market upside)
-- **Index Funds (Broad Exposure)**: **${Math.round(results.equityPercent * 0.33)}%** (UTI Nifty 50 Index Fund for low-cost passive compounding)
-- **Gold & Commodities**: **${results.goldPercent}%** (Sovereign Gold Bonds / Gold ETFs as an inflation hedge)
-- **Fixed Debt / Debt Funds**: **${Math.round(results.debtPercent * 0.7)}%** (HDFC Short Term Debt Fund for capital preservation)
-- **Emergency Reserve**: **${Math.round(results.debtPercent * 0.3)}%** (Liquid FDs covering 3-6 months living expenses)
+- **Mutual Funds**: **40%** (Aggressive hybrid or equity-oriented flexi-cap funds to tap into growth potential)
+- **Index Funds**: **20%** (To provide broad market exposure and diversification)
+- **Gold**: **10%** (As a hedge against market volatility and inflation)
+- **Fixed Deposit**: **5%** (For stability and liquidity)
+- **PPF**: **10%** (For long-term tax-free returns and retirement planning)
+- **Emergency Fund**: **15%** (Approximately 3-4 months' expenses)
 
 ## Monthly SIP Recommendation
-To achieve your target Net Worth Goal of **${symbol} ${inputs.netWorthGoal.toLocaleString()}**, we recommend a monthly SIP of **${symbol} ${inputs.monthlyInvestment.toLocaleString()} to ${symbol} ${stepUpSipReq.toLocaleString()}** allocated across the recommended options. Over **${inputs.investmentDurationYrs} years**, this projects a total corpus of **${symbol} ${results.projectedCorpus.toLocaleString()}** (${results.achievementLikelihood}% confidence likelihood).
+To achieve your investment goals, I recommend a monthly SIP (Systematic Investment Plan) of **${symbol} ${inputs.monthlyInvestment.toLocaleString()} to ${symbol} ${stepUpSipReq.toLocaleString()}**, allocated across the recommended investment options. This will help you build a disciplined investment habit and navigate market fluctuations.
 
 ## Tax Saving Suggestions
-Consider investing in tax-saving instruments like **ELSS (Equity-Linked Savings Scheme)** mutual funds (3-year lock-in with equity returns) or **NPS (National Pension System)** under Section 80C and 80CCD(1B) to reduce your taxable income.
+Consider investing in tax-saving instruments like **ELSS (Equity-Linked Savings Scheme)** mutual funds or **NPS (National Pension System)** to reduce your taxable income and optimize your tax outgo under Section 80C, 80D, and 80E.
 
 ## Important Advice
-- **Review & Adjust**: Periodically review your portfolio annually to realign with your risk appetite.
-- **Step-Up SIP**: Increase your monthly SIP by 10-15% every year as your salary increases to reach **100% goal feasibility**.
-- **Long-Term Discipline**: Resist withdrawing during short-term market dips to let compound growth maximize wealth.
-- **Insurance Protection**: Secure adequate term life and health insurance before taking heavy equity bets.
-- **Financial Discipline**: Maintain a consistent investment approach and prioritize long-term financial goals.`;
+- **Review and Adjust**: Regularly review your investment portfolio (at least once a year) to ensure it remains aligned with your financial goals and risk profile.
+- **Diversification**: Spread your investments across different asset classes to minimize risk and maximize returns.
+- **Long-Term Focus**: Resist the temptation to withdraw from your investments during market fluctuations; focus on long-term growth.
+- **Insurance**: Consider purchasing adequate life and health insurance coverage to protect your financial well-being.
+- **Financial Discipline**: Maintain a consistent investment approach and prioritize your financial goals.`;
     }
 
     // Save to InvestmentPlan table in database

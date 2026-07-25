@@ -110,17 +110,28 @@ export async function POST(req: Request) {
       : "No investment plan calculated yet.";
 
     // Broadened System Prompt
-    const systemPrompt = `You are FinPilot AI, a knowledgeable, broad Personal Finance Assistant, Senior Financial Coach, and Chartered Accountant advisor speaking with ${userName}.
+    const systemPrompt = `You are FinPilot AI, a Senior Financial Coach and Chartered Accountant advisor speaking with ${userName}.
 
 YOUR KNOWLEDGE & SCOPE:
-- You answer ANY personal finance or economic question accurately and concisely (Taxes, Section 80C/ELSS, Credit Scores/CIBIL, Mortgages/Loans, Life & Health Insurance, Retirement accounts 401k/IRA/NPS, Inflation, Stock Market terms, SIPs, Budgeting rules like 50/30/20, Macroeconomics, buying stocks, PE ratios, REITs, Crypto, etc.).
-- When recommending investment options, structure your response with:
-  🎯 Risk Profile
+- You answer ANY personal finance or economic question accurately and thoroughly (Taxes, Section 80C/ELSS, Credit Scores/CIBIL, Mortgages/Loans, Life & Health Insurance, Retirement accounts 401k/IRA/NPS, Inflation, Stock Market terms, SIPs, Budgeting rules like 50/30/20, Macroeconomics, buying stocks, PE ratios, REITs, Crypto, etc.).
+- When giving investment advice, format your response in this EXACT structured layout:
+  🎯 Risk Profile: ${userRisk}
   📘 Personalized Investment Plan & Financial Health
-  📊 Recommended Asset Allocation (Mutual Funds, Index Funds, Debt, Gold, Emergency Reserve)
-  💰 Monthly SIP Recommendation
-  🛡️ Tax Saving Suggestions (Sec 80C, ELSS, NPS)
-  💡 Important Coaching Advice
+  ## Financial Health Overview
+  (Detail salary, expenses, savings rate %, and risk profile fit)
+
+  ## Recommended Asset Allocation
+  (List exact percentage breakdown for Mutual Funds, Index Funds, Gold, Fixed Deposits, PPF, Emergency Fund)
+
+  ## Monthly SIP Recommendation
+  (Detail monthly SIP split and growth trajectory)
+
+  ## Tax Saving Suggestions
+  (Detail ELSS, Section 80C, 80D, 80E, NPS)
+
+  ## Important Advice
+  (5 actionable bullet points: Review & Adjust, Diversification, Long-Term Focus, Insurance, Financial Discipline)
+
 - Reference the user's EXACT live numbers (${userName}, ${userCurrency} currency, ${userRisk} Risk) when available.
 - Keep responses clean, beautifully formatted with markdown headings and emojis.
 
@@ -142,8 +153,10 @@ ${investmentPlanContextStr}`;
       take: 10,
     });
 
-    // 3. Check for Groq API Key first (Ultra-Fast 800+ tokens/sec LLaMA-3.3-70B model)
-    const groqApiKey = process.env.GROQ_API_KEY || (process.env.LLM_API_KEY?.startsWith("gsk_") ? process.env.LLM_API_KEY : null);
+    // 3. Connect to Groq API using env var (llama-3.3-70b-versatile model)
+    const groqApiKey =
+      process.env.GROQ_API_KEY ||
+      (process.env.LLM_API_KEY?.startsWith("gsk_") ? process.env.LLM_API_KEY : null);
 
     if (groqApiKey) {
       try {
@@ -164,7 +177,7 @@ ${investmentPlanContextStr}`;
               { role: "user", content: userPrompt },
             ],
             temperature: 0.7,
-            max_tokens: 1024,
+            max_tokens: 1200,
           }),
         });
 
@@ -225,83 +238,58 @@ ${investmentPlanContextStr}`;
     if (!assistantReply) {
       if (promptLower.includes("buy stock") || promptLower.includes("how to invest") || promptLower.includes("demat") || promptLower.includes("broker")) {
         assistantReply = `🎯 **Risk Profile**: ${userRisk}
-📘 **Personalized Investment Guidance**
+📘 **Personalized Investment Plan**
 
-### Financial Health Snapshot
-You currently retain **${currencySymbol} ${monthlySurplus.toLocaleString()}/mo** in net monthly surplus (${totalIncome > 0 ? Math.round((monthlySurplus / totalIncome) * 100) : 60}% savings rate). This provides a strong foundation for building long-term wealth.
+## Financial Health Overview
+You have a monthly income and expenses that leave a net surplus of **${currencySymbol} ${monthlySurplus.toLocaleString()}/mo**. Considering your **${userRisk} Risk** profile, we can explore investment options that have the potential for higher returns while managing risks.
 
-### Recommended Allocation
-- **Equity Mutual Funds (Core Growth)**: **${investmentPlan?.equityPercent || 60}%** (Index Funds & Flexi-Cap Funds)
-- **Debt & Fixed Income (Stability)**: **${investmentPlan?.debtPercent || 30}%** (Corporate Bonds & Short Term Debt Funds)
-- **Gold & Inflation Hedge**: **${investmentPlan?.goldPercent || 10}%** (Sovereign Gold Bonds / Gold ETFs)
+## Recommended Asset Allocation
+- **Mutual Funds**: **40%** (Aggressive hybrid or equity-oriented flexi-cap funds to tap into growth potential)
+- **Index Funds**: **20%** (UTI Nifty 50 Index Fund to provide broad market exposure and diversification)
+- **Gold**: **10%** (Sovereign Gold Bonds / Gold ETFs as a hedge against market volatility and inflation)
+- **Fixed Deposit**: **5%** (For stability and immediate liquidity)
+- **PPF**: **10%** (For long-term tax-free returns and retirement planning)
+- **Emergency Fund**: **15%** (Approximately 3-6 months' expenses)
 
-### Monthly SIP Recommendation
-Invest a monthly SIP of **${currencySymbol} ${investmentPlan?.monthlyInvestment?.toLocaleString() || "20,000"} to ${currencySymbol} ${monthlySurplus.toLocaleString()}** split across Nifty 50 Index Funds and Flexi-Cap Funds.
+## Monthly SIP Recommendation
+To achieve your investment goals, I recommend a monthly SIP (Systematic Investment Plan) of **${currencySymbol} ${investmentPlan?.monthlyInvestment?.toLocaleString() || "15,000"} to ${currencySymbol} ${monthlySurplus.toLocaleString()}**, allocated across the recommended investment options.
 
-### Tax Saving Suggestions
-Consider investing in **ELSS (Equity-Linked Savings Scheme)** mutual funds or **NPS** under Section 80C to reduce income tax while earning 12%+ market growth.
+## Tax Saving Suggestions
+Consider investing in tax-saving instruments like **ELSS (Equity-Linked Savings Scheme)** mutual funds or **NPS (National Pension System)** to reduce your taxable income. You can also explore tax deductions under Section 80C, 80D, and 80E of the Income Tax Act.
 
-### Important Advice
-1. **Annual Step-Up**: Increase your SIP by 10-15% every year as your income grows.
-2. **Emergency Reserve**: Keep 3-6 months living expenses liquid before taking equity bets.`;
-      } else if (promptLower.includes("pe ratio") || promptLower.includes("price to earnings")) {
-        assistantReply = `### What is the P/E Ratio (Price-to-Earnings)?
-
-The **Price-to-Earnings (P/E) Ratio** evaluates how much investors pay per $1 or ₹1 of company profit:
-
-- **Formula**: $\\text{P/E} = \\frac{\\text{Stock Price}}{\\text{Earnings Per Share (EPS)}}$
-- **Guidance**: A P/E under 20 often indicates value, while >35 reflects high growth expectations or overvaluation.`;
-      } else if (promptLower.includes("tax") || promptLower.includes("80c") || promptLower.includes("elss")) {
-        assistantReply = `🎯 **Tax Optimization Strategy**
-
-### Section 80C & Tax-Saving Options (Up to ₹1,50,000/yr)
-- **ELSS Mutual Funds**: Shortest 3-year lock-in with equity returns (~12-14% CAGR).
-- **NPS (National Pension System)**: Additional ₹50,000 deduction under Sec 80CCD(1B).
-- **PPF**: 15-year tax-free government interest (~7.1% p.a.).`;
-      } else if (promptLower.includes("sovereign gold bond") || promptLower.includes("sgb") || promptLower.includes("gold bond")) {
-        assistantReply = `🎯 **Sovereign Gold Bonds (SGBs) Overview**
-
-- **2.5% p.a. Fixed Interest**: Paid semi-annually directly into your bank account.
-- **100% Tax-Free**: Capital gains are tax-exempt if held to 8-year maturity.
-- **Allocation**: Allocated at **${investmentPlan?.goldPercent || 10}%** in your FinPilot AI plan!`;
-      } else if (promptLower.includes("equity") && !promptLower.includes("my equity")) {
-        assistantReply = `### What is Equity?
-
-**Equity** (stocks/shares) represents company ownership:
-- **Returns**: Historically delivers **10%–14% CAGR** over 5-10+ years.
-- **Strategy**: Core wealth compounder in your portfolio (**${investmentPlan?.equityPercent || 60}%** allocation).`;
-      } else if (
-        promptLower.includes("my plan") ||
-        promptLower.includes("my strategy") ||
-        promptLower.includes("my allocation") ||
-        promptLower.includes("my portfolio") ||
-        promptLower.includes("why did the ai recommend")
-      ) {
-        assistantReply = `🎯 **Risk Profile**: ${userRisk}
-📘 **Personalized FinPilot AI Plan**
-
-### Financial Health Snapshot
-You retain a net monthly surplus of **${currencySymbol} ${monthlySurplus.toLocaleString()}/mo** across your income and expenses.
-
-### Recommended Allocation
-- **Equity Funds**: **${investmentPlan?.equityPercent || 60}%** (UTI Nifty 50 Index Fund & Parag Parikh Flexi Cap)
-- **Debt Funds**: **${investmentPlan?.debtPercent || 30}%** (HDFC Short Term Debt Fund)
-- **Gold Hedge**: **${investmentPlan?.goldPercent || 10}%** (Sovereign Gold Bonds)
-
-### Monthly SIP & Corpus Goal
-Investing **${currencySymbol} ${investmentPlan?.monthlyInvestment?.toLocaleString() || "25,000"}/mo** over **${investmentPlan?.investmentDurationYrs || 10} years** projects a corpus of **${currencySymbol} ${(investmentPlan?.projectedCorpus || 5834882).toLocaleString()}** (${investmentPlan?.achievementLikelihood || 58}% confidence likelihood).
-
-### Important Advice
-Step up your monthly SIP by 10-15% annually to make your net worth goal **100% realistically achievable**!`;
+## Important Advice
+- **Review and Adjust**: Regularly review your investment portfolio (at least once a year) to ensure it remains aligned with your financial goals and risk profile.
+- **Diversification**: Spread your investments across different asset classes to minimize risk and maximize returns.
+- **Long-Term Focus**: Resist the temptation to withdraw from your investments during market fluctuations; focus on long-term growth.
+- **Insurance**: Consider purchasing adequate life and health insurance coverage to protect your financial well-being.
+- **Financial Discipline**: Maintain a consistent investment approach and prioritize your financial goals.`;
       } else {
-        const cleanTopic = userPrompt.replace(/^(what is|how to|can you explain|tell me about|what are|define)\s+/i, "");
+        assistantReply = `🎯 **Risk Profile**: ${userRisk}
+📘 **Personalized Investment Plan**
 
-        assistantReply = `🎯 **Financial Coaching Insights**: ${cleanTopic.charAt(0).toUpperCase() + cleanTopic.slice(1)}
+## Financial Health Overview
+You have a monthly income of **${currencySymbol} ${(totalIncome || 50000).toLocaleString()}** and expenses of **${currencySymbol} ${(totalExpense || 20000).toLocaleString()}**, translating to a net monthly surplus of **${currencySymbol} ${(monthlySurplus || 30000).toLocaleString()}/mo**.
 
-### Core Strategy Breakdown
-1. **Key Concept**: In personal finance, ${cleanTopic} is essential for balancing risk, tax efficiency, and capital compounding.
-2. **Action Plan**: Maintain an emergency reserve (3-6 months living expenses) before allocating into growth assets.
-3. **Profile Integration**: With your monthly surplus of **${currencySymbol} ${monthlySurplus.toLocaleString()}/mo**, structure your capital across Nifty 50 Index Funds, Debt Instruments, and Gold.`;
+## Recommended Asset Allocation
+- **Mutual Funds**: **40%** (Flexi-Cap and Growth Equity Funds)
+- **Index Funds**: **20%** (Nifty 50 Index Funds)
+- **Gold**: **10%** (Sovereign Gold Bonds)
+- **Fixed Deposit**: **5%** (Liquid Stability)
+- **PPF**: **10%** (Tax-free Long-term wealth)
+- **Emergency Fund**: **15%** (3-6 Months Liquid Reserves)
+
+## Monthly SIP Recommendation
+Recommend a monthly SIP of **${currencySymbol} ${(investmentPlan?.monthlyInvestment || 15000).toLocaleString()}**, allocated across the recommended asset classes.
+
+## Tax Saving Suggestions
+Explore ELSS tax-saving mutual funds and NPS contributions under Section 80C and Section 80CCD(1B).
+
+## Important Advice
+- **Review and Adjust**: Rebalance portfolio annually.
+- **Diversification**: Spread across Equity, Debt, and Gold.
+- **Long-Term Focus**: Stay invested through market cycles.
+- **Insurance**: Maintain term life and health insurance.
+- **Financial Discipline**: Automate your monthly SIP.`;
       }
     }
 
