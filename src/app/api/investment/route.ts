@@ -62,72 +62,144 @@ export async function POST(req: Request) {
     const currency = (session.user as any)?.currency || "INR";
     const symbol = currency === "USD" ? "$" : currency === "EUR" ? "€" : currency === "GBP" ? "£" : "₹";
 
-    try {
-      const llmApiKey = process.env.LLM_API_KEY;
-      if (llmApiKey && llmApiKey !== "your-llm-api-key") {
-        const prompt = `You are FinPilot AI, a Senior Financial Coach and Chartered Accountant advisor.
+    // 1. Try Groq API LLaMA-3.3-70B model if key present
+    const groqApiKey = process.env.GROQ_API_KEY || (process.env.LLM_API_KEY?.startsWith("gsk_") ? process.env.LLM_API_KEY : null);
+
+    if (groqApiKey) {
+      try {
+        const prompt = `You are FinPilot AI, a Senior Personal Financial Coach and Chartered Accountant advisor.
 Analyze the following DETERMINISTICALLY CALCULATED investment strategy for a ${inputs.age}-year-old user with a ${inputs.riskAppetite} Risk Profile:
 
+- Monthly Salary: ${symbol} ${inputs.monthlySalary.toLocaleString()}
+- Monthly Expenses: ${symbol} ${inputs.monthlyExpenses.toLocaleString()}
+- Current Savings: ${symbol} ${inputs.currentSavings.toLocaleString()}
 - Monthly Investment (SIP): ${symbol} ${inputs.monthlyInvestment.toLocaleString()}
 - Horizon: ${inputs.investmentDurationYrs} Years (${results.expectedAnnualReturn}% p.a. expected return assumption)
 - Total Principal Invested: ${symbol} ${results.totalInvested.toLocaleString()}
 - Projected Target Corpus: ${symbol} ${results.projectedCorpus.toLocaleString()} (Estimated Gains: ${symbol} ${results.estimatedReturns.toLocaleString()})
 - Net Worth Goal: ${symbol} ${inputs.netWorthGoal.toLocaleString()}
 - Achievement Confidence Likelihood: ${results.achievementLikelihood}%
-- Recommended Asset Allocation: ${results.equityPercent}% Equity (Mutual Funds / Stocks), ${results.debtPercent}% Debt (Bonds / Fixed Income), ${results.goldPercent}% Gold / Commodities.
+- Recommended Asset Allocation: ${results.equityPercent}% Equity, ${results.debtPercent}% Debt, ${results.goldPercent}% Gold.
 
-Write a professional, structured 4-section financial advisory response detailing:
-1. Asset Allocation Rationale: Why this ${results.equityPercent}% Equity / ${results.debtPercent}% Debt / ${results.goldPercent}% Gold allocation is tailored to their age (${inputs.age}) and ${inputs.riskAppetite} risk appetite.
-2. Specific Actionable Vehicles: List exact fund types to invest in (e.g. Nifty 50 Index Mutual Funds, Flexi-Cap Equity Funds, Short-Duration Debt Funds, Sovereign Gold Bonds / Gold ETFs).
-3. Goal Feasibility Assessment: Explain their ${results.achievementLikelihood}% likelihood of hitting their ${symbol} ${inputs.netWorthGoal.toLocaleString()} Net Worth Goal.
-4. Step-Up SIP Action Plan: How to bridge any deficit (e.g., increasing monthly SIP by 10% annually).
+Format your response EXACTLY with these markdown sections and emojis:
+🎯 Risk Profile: ${inputs.riskAppetite}
+📘 Personalized Investment Plan & Financial Health
+## Financial Health Overview
+(Detail salary, expenses, savings rate %, and risk profile fit)
 
-Do NOT change or invent any new numbers — explain ONLY the numbers provided above. Keep your tone encouraging, practical, and highly authoritative.`;
+## Recommended Asset Allocation
+(List exact percentage breakdown for Mutual Funds, Index Funds, Debt, Gold, Emergency Reserve)
 
-        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${llmApiKey}`, {
+## Monthly SIP Recommendation
+(Detail monthly SIP split and growth trajectory)
+
+## Tax Saving Suggestions
+(Detail ELSS, Section 80C, 80D, 80E, NPS)
+
+## Important Advice
+(5 actionable bullet points: Review & Adjust, Diversification, Long-Term Focus, Insurance, Financial Discipline)`;
+
+        const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            Authorization: `Bearer ${groqApiKey}`,
+            "Content-Type": "application/json",
+          },
           body: JSON.stringify({
-            contents: [{ parts: [{ text: prompt }] }],
+            model: "llama-3.3-70b-versatile",
+            messages: [
+              { role: "system", content: "You are FinPilot AI, a Senior Financial Coach and CA." },
+              { role: "user", content: prompt },
+            ],
+            temperature: 0.7,
+            max_tokens: 1024,
           }),
         });
 
         if (res.ok) {
           const data = await res.json();
-          llmNarrative = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "";
+          llmNarrative = data.choices?.[0]?.message?.content?.trim() || "";
         }
+      } catch (err) {
+        console.warn("Groq API investment model error:", err);
       }
-    } catch (err) {
-      console.warn("LLM Narrative fallback trigger:", err);
     }
 
-    // Default Fallback Advisory Narrative with Specific Actionable Guidance
+    // 2. Try Gemini API fallback
     if (!llmNarrative) {
+      const llmApiKey = process.env.LLM_API_KEY;
+      if (llmApiKey && llmApiKey !== "your-llm-api-key" && !llmApiKey.startsWith("gsk_")) {
+        try {
+          const prompt = `You are FinPilot AI, a Senior Financial Coach and Chartered Accountant advisor.
+Analyze the following investment strategy for a ${inputs.age}-year-old user with a ${inputs.riskAppetite} Risk Profile:
+
+- Monthly Salary: ${symbol} ${inputs.monthlySalary.toLocaleString()}
+- Monthly Expenses: ${symbol} ${inputs.monthlyExpenses.toLocaleString()}
+- Current Savings: ${symbol} ${inputs.currentSavings.toLocaleString()}
+- Monthly Investment (SIP): ${symbol} ${inputs.monthlyInvestment.toLocaleString()}
+- Horizon: ${inputs.investmentDurationYrs} Years (${results.expectedAnnualReturn}% p.a. return)
+- Projected Corpus: ${symbol} ${results.projectedCorpus.toLocaleString()}
+- Net Worth Goal: ${symbol} ${inputs.netWorthGoal.toLocaleString()}
+- Achievement Likelihood: ${results.achievementLikelihood}%
+- Allocation: ${results.equityPercent}% Equity, ${results.debtPercent}% Debt, ${results.goldPercent}% Gold.
+
+Format with sections:
+🎯 Risk Profile: ${inputs.riskAppetite}
+📘 Personalized Investment Plan & Financial Health
+## Financial Health Overview
+## Recommended Asset Allocation
+## Monthly SIP Recommendation
+## Tax Saving Suggestions
+## Important Advice`;
+
+          const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${llmApiKey}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              contents: [{ parts: [{ text: prompt }] }],
+            }),
+          });
+
+          if (res.ok) {
+            const data = await res.json();
+            llmNarrative = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "";
+          }
+        } catch (err) {
+          console.warn("Gemini API investment model error:", err);
+        }
+      }
+    }
+
+    // 3. High-End Structured Fallback Advisory Narrative
+    if (!llmNarrative) {
+      const netSavingsRate = Math.round((Math.max(0, inputs.monthlySalary - inputs.monthlyExpenses) / (inputs.monthlySalary || 1)) * 100);
       const stepUpSipReq = Math.round(inputs.monthlyInvestment * 1.15);
 
-      llmNarrative = `### Asset Allocation & Strategy Breakdown
-Based on your age of **${inputs.age}** and **${inputs.riskAppetite} Risk** profile, your portfolio is structured with **${results.equityPercent}% Equity**, **${results.debtPercent}% Debt**, and **${results.goldPercent}% Gold**.
+      llmNarrative = `🎯 **Risk Profile**: ${inputs.riskAppetite}
+📘 **Personalized Investment Plan**
 
-- **Equity (${results.equityPercent}%):** Provides capital appreciation over your ${inputs.investmentDurationYrs}-year timeline to beat inflation and compound wealth.
-- **Debt & Fixed Income (${results.debtPercent}%):** Provides capital protection and downside buffer during market downturns.
-- **Gold & Commodities (${results.goldPercent}%):** Serves as a macro hedge against systemic market volatility.
+## Financial Health Overview
+You have a monthly salary of **${symbol} ${inputs.monthlySalary.toLocaleString()}** and expenses of **${symbol} ${inputs.monthlyExpenses.toLocaleString()}**, translating to a net savings rate of **${netSavingsRate}%** (${symbol} ${Math.max(0, inputs.monthlySalary - inputs.monthlyExpenses).toLocaleString()}/mo). Your current savings of **${symbol} ${inputs.currentSavings.toLocaleString()}** is a strong starting foundation. Considering your **${inputs.riskAppetite} Risk** profile, we structure high-growth equity assets paired with debt stability and gold hedging.
 
-### Recommended Where & How to Invest
-1. **Equity Allocation (${results.equityPercent}% $\rightarrow$ ${symbol} ${Math.round((inputs.monthlyInvestment * results.equityPercent) / 100).toLocaleString()}/mo):**
-   - **Nifty 50 Index Mutual Fund** (40%): Low-cost passive compounding.
-   - **Flexi-Cap / Large & Mid-Cap Fund** (20%): Active multi-sector alpha growth.
-2. **Debt Allocation (${results.debtPercent}% $\rightarrow$ ${symbol} ${Math.round((inputs.monthlyInvestment * results.debtPercent) / 100).toLocaleString()}/mo):**
-   - **Banking & PSU Debt Funds / Corporate Bond Funds**: Low-risk fixed-income stability.
-3. **Gold Allocation (${results.goldPercent}% $\rightarrow$ ${symbol} ${Math.round((inputs.monthlyInvestment * results.goldPercent) / 100).toLocaleString()}/mo):**
-   - **Sovereign Gold Bonds (SGB) / Sovereign Gold ETFs**: Tax-efficient commodity hedging.
+## Recommended Asset Allocation
+- **Mutual Funds (Growth Equity)**: **${Math.round(results.equityPercent * 0.67)}%** (Flexi-Cap & Large/Mid-Cap Funds to capture market upside)
+- **Index Funds (Broad Exposure)**: **${Math.round(results.equityPercent * 0.33)}%** (UTI Nifty 50 Index Fund for low-cost passive compounding)
+- **Gold & Commodities**: **${results.goldPercent}%** (Sovereign Gold Bonds / Gold ETFs as an inflation hedge)
+- **Fixed Debt / Debt Funds**: **${Math.round(results.debtPercent * 0.7)}%** (HDFC Short Term Debt Fund for capital preservation)
+- **Emergency Reserve**: **${Math.round(results.debtPercent * 0.3)}%** (Liquid FDs covering 3-6 months living expenses)
 
-### Goal Achievement Feasibility & Action Plan
-Your monthly SIP contribution of **${symbol} ${inputs.monthlyInvestment.toLocaleString()}** over **${inputs.investmentDurationYrs} years** achieves an estimated projected corpus of **${symbol} ${results.projectedCorpus.toLocaleString()}**, representing a **${results.achievementLikelihood}% likelihood** of reaching your **${symbol} ${inputs.netWorthGoal.toLocaleString()}** Net Worth Goal.
+## Monthly SIP Recommendation
+To achieve your target Net Worth Goal of **${symbol} ${inputs.netWorthGoal.toLocaleString()}**, we recommend a monthly SIP of **${symbol} ${inputs.monthlyInvestment.toLocaleString()} to ${symbol} ${stepUpSipReq.toLocaleString()}** allocated across the recommended options. Over **${inputs.investmentDurationYrs} years**, this projects a total corpus of **${symbol} ${results.projectedCorpus.toLocaleString()}** (${results.achievementLikelihood}% confidence likelihood).
 
-💡 **Actionable Step-Up SIP Advice:**
-To bridge your target gap and achieve **100% feasibility**, increase your monthly SIP contribution by 10-15% annually as your income grows (e.g. step up to **${symbol} ${stepUpSipReq.toLocaleString()}/mo** in Year 2).
+## Tax Saving Suggestions
+Consider investing in tax-saving instruments like **ELSS (Equity-Linked Savings Scheme)** mutual funds (3-year lock-in with equity returns) or **NPS (National Pension System)** under Section 80C and 80CCD(1B) to reduce your taxable income.
 
-*Disclaimer: Projections are computed using standard SIP compound formulas (${results.expectedAnnualReturn}% p.a. return assumption) and are for educational planning purposes.*`;
+## Important Advice
+- **Review & Adjust**: Periodically review your portfolio annually to realign with your risk appetite.
+- **Step-Up SIP**: Increase your monthly SIP by 10-15% every year as your salary increases to reach **100% goal feasibility**.
+- **Long-Term Discipline**: Resist withdrawing during short-term market dips to let compound growth maximize wealth.
+- **Insurance Protection**: Secure adequate term life and health insurance before taking heavy equity bets.
+- **Financial Discipline**: Maintain a consistent investment approach and prioritize long-term financial goals.`;
     }
 
     // Save to InvestmentPlan table in database
