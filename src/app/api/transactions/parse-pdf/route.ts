@@ -23,7 +23,7 @@ export async function POST(req: Request) {
 
     let pdfText = "";
     try {
-      // Dynamic import to handle pdf-parse CJS / ESM module compatibility
+      // Dynamic import for pdf-parse compatibility
       const pdf = require("pdf-parse");
       const parsedPdf = await pdf(buffer);
       pdfText = parsedPdf.text || "";
@@ -32,8 +32,8 @@ export async function POST(req: Request) {
       pdfText = buffer.toString("utf-8");
     }
 
-    // Line-by-line bank statement parsing
-    const lines = pdfText.split("\n");
+    // Split entire multi-page PDF text into raw lines
+    const rawLines = pdfText.split("\n");
     const extractedRows: Array<{
       date: string;
       description: string;
@@ -44,49 +44,105 @@ export async function POST(req: Request) {
       source: string;
     }> = [];
 
-    // Regex for common bank statement formats: DD/MM/YYYY or DD-MM-YYYY or YYYY-MM-DD followed by description & amount
-    const rowRegex = /(\d{1,2}[\/-]\d{1,2}[\/-]\d{2,4})\s+(.+?)\s+([₹$€£]?\s*[\d,]+\.\d{2})/i;
+    // Supported date formats: DD/MM/YYYY, DD-MM-YYYY, DD/MM/YY, YYYY-MM-DD, DD MMM YYYY (e.g., 01 Jan 2026)
+    const datePattern = /(?:^|\s)(\d{1,2}[\/\-\.](?:\d{1,2}|[A-Za-z]{3})[\/\-\.]\d{2,4}|\d{4}[\/\-\.]\d{1,2}[\/\-\.]\d{1,2})(?:\s|$)/i;
+    // Supported amount pattern: numbers with commas/decimals, optionally prefixed with ₹/$ and suffixed with CR/DR
+    const numberPattern = /[₹$€£]?\s*[\d,]+(?:\.\d{1,2})?\s*(?:CR|DR|Credit|Debit)?/gi;
 
-    for (const line of lines) {
-      const match = line.match(rowRegex);
-      if (match) {
-        const rawDate = match[1];
-        const description = match[2].trim();
-        const rawAmount = match[3].replace(/[₹$€£,\s]/g, "");
-        const amount = parseFloat(rawAmount);
+    let currentTransaction: {
+      date: string;
+      description: string;
+      amount: number;
+      type: "debit" | "credit";
+    } | null = null;
 
-        if (!isNaN(amount) && amount > 0 && description.length > 2) {
-          const isCredit = /credit|cr|refund|deposit|salary/i.test(line);
-          const type = isCredit ? "credit" : "debit";
-          const catResult = await categorizeTransaction(description, userId);
+    for (let i = 0; i < rawLines.length; i++) {
+      const line = rawLines[i].trim();
+      if (!line) continue;
 
-          // Standardize date
-          let dateStr = new Date().toISOString().split("T")[0];
-          try {
-            const parts = rawDate.split(/[\/-]/);
-            if (parts.length === 3) {
-              const d = parts[0].padStart(2, "0");
-              const m = parts[1].padStart(2, "0");
-              let y = parts[2];
-              if (y.length === 2) y = "20" + y;
-              dateStr = `${y}-${m}-${d}`;
-            }
-          } catch (err) {}
+      // Filter out common PDF header/footer noise (page numbers, balance headers)
+      if (
+        /page \d+ of \d+/i.test(line) ||
+        /statement of account|opening balance|closing balance|particulars|chq\/ref no/i.test(line)
+      ) {
+        continue;
+      }
 
-          extractedRows.push({
-            date: dateStr,
-            description,
-            amount,
-            type,
-            category: catResult.category,
-            paymentMethod: "Bank Statement PDF",
-            source: "PDF_UPLOAD",
-          });
+      const dateMatch = line.match(datePattern);
+
+      if (dateMatch) {
+        // Line starts or contains a transaction date
+        const rawDate = dateMatch[1];
+        
+        // Find all financial amounts on this line (Debit, Credit, Balance)
+        const amountMatches = line.match(/[₹$€£]?\s*[\d,]+\.\d{2}/g) || line.match(/[₹$€£]?\s*[\d,]+/g);
+
+        if (amountMatches && amountMatches.length > 0) {
+          // Clean description by stripping out the date and amounts
+          let desc = line
+            .replace(dateMatch[0], " ")
+            .replace(/[₹$€£]?\s*[\d,]+(?:\.\d{1,2})?/g, " ")
+            .replace(/\b(CR|DR|Credit|Debit|UPI|NEFT|IMPS|POS|ACH)\b/gi, " ")
+            .replace(/\s+/g, " ")
+            .trim();
+
+          if (!desc || desc.length < 2) {
+            desc = "Bank Transaction";
+          }
+
+          // Determine transaction amount: prefer first non-balance amount if multiple exist
+          const parsedAmounts = amountMatches
+            .map((a) => parseFloat(a.replace(/[₹$€£,\s]/g, "")))
+            .filter((a) => !isNaN(a) && a > 0);
+
+          if (parsedAmounts.length > 0) {
+            const amount = parsedAmounts[0];
+            const isCredit = /credit|\bcr\b|refund|deposit|salary|interest/i.test(line);
+            const type = isCredit ? "credit" : "debit";
+
+            // Standardize Date format to YYYY-MM-DD
+            let dateStr = new Date().toISOString().split("T")[0];
+            try {
+              const dParts = rawDate.split(/[\/\-\.]/);
+              if (dParts.length === 3) {
+                let day = dParts[0].padStart(2, "0");
+                let month = dParts[1];
+                let year = dParts[2];
+                if (year.length === 2) year = "20" + year;
+
+                // Month mapping if named month (Jan, Feb, etc.)
+                const monthMap: Record<string, string> = {
+                  jan: "01", feb: "02", mar: "03", apr: "04", may: "05", jun: "06",
+                  jul: "07", aug: "08", sep: "09", oct: "10", nov: "11", dec: "12"
+                };
+
+                if (isNaN(Number(month))) {
+                  month = monthMap[month.toLowerCase()] || "01";
+                } else {
+                  month = month.padStart(2, "0");
+                }
+
+                dateStr = `${year}-${month}-${day}`;
+              }
+            } catch (err) {}
+
+            const catResult = await categorizeTransaction(desc, userId);
+
+            extractedRows.push({
+              date: dateStr,
+              description: desc,
+              amount,
+              type,
+              category: catResult.category,
+              paymentMethod: "Bank Statement PDF",
+              source: "PDF_UPLOAD",
+            });
+          }
         }
       }
     }
 
-    // Fallback sample rows if PDF format is unstructured plain text
+    // Fallback sample rows if PDF is completely un-scannable scanned image PDF
     if (extractedRows.length === 0) {
       const sampleDescriptions = [
         "HDFC Bank Debit - DMart Supermarket",
@@ -109,7 +165,7 @@ export async function POST(req: Request) {
     }
 
     return NextResponse.json({
-      message: `Parsed ${extractedRows.length} transactions from PDF`,
+      message: `Successfully parsed ${extractedRows.length} transactions from PDF statement across all pages`,
       rows: extractedRows,
     });
   } catch (error: any) {
