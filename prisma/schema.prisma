@@ -10,21 +10,25 @@ datasource db {
 }
 
 model User {
-  id            String    @id @default(cuid())
-  name          String?
-  email         String    @unique
-  passwordHash  String
-  currency      String    @default("INR") // e.g. INR, USD, EUR
-  riskAppetite  String    @default("Medium") // Low, Medium, High
-  avatarUrl     String?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  id               String    @id @default(cuid())
+  name             String?
+  email            String    @unique
+  passwordHash     String
+  currency         String    @default("INR") // e.g. INR, USD, EUR
+  riskAppetite     String    @default("Medium") // Low, Medium, High
+  avatarUrl        String?
+  resetToken       String?
+  resetTokenExpiry DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 
-  transactions     Transaction[]
-  spendingLimits   SpendingLimit[]
-  goals            Goal[]
+  transactions      Transaction[]
+  spendingLimits    SpendingLimit[]
+  merchantOverrides MerchantOverride[]
+  goals             Goal[]
   investmentProfile InvestmentProfile?
-  chatMessages     ChatMessage[]
+  investmentPlan    InvestmentPlan?
+  chatMessages      ChatMessage[]
 }
 
 model Transaction {
@@ -55,6 +59,18 @@ model SpendingLimit {
   @@unique([userId, category])
 }
 
+model MerchantOverride {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  merchant  String   // normalized merchant keyword/name
+  category  String   // target category assigned by user
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, merchant])
+}
+
 model Goal {
   id             String    @id @default(cuid())
   userId         String
@@ -82,6 +98,34 @@ model InvestmentProfile {
   monthlyInvestment     Float
   investmentDurationYrs Int
   riskAppetite          String   // Low, Medium, High
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+}
+
+model InvestmentPlan {
+  id                    String   @id @default(cuid())
+  userId                String   @unique
+  user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  age                   Int
+  monthlySalary         Float
+  monthlyExpenses       Float
+  currentSavings        Float
+  emergencyFund         Float
+  netWorthGoal          Float
+  monthlyInvestment     Float
+  investmentDurationYrs Int
+  riskAppetite          String   // Low, Medium, High
+  projectedCorpus       Float    // Expected Case FV
+  bestCaseCorpus        Float    // Best Case FV
+  worstCaseCorpus       Float    // Worst Case FV
+  totalInvested         Float    // P * n
+  estimatedReturns      Float    // projectedCorpus - totalInvested
+  achievementLikelihood Int      // 0 - 100% confidence band
+  equityPercent         Int      // % Equity
+  debtPercent           Int      // % Debt
+  goldPercent           Int      // % Gold
+  llmNarrative          String   // Plain-language AI advisory narrative
+  chartDataJson         String   // Year-by-year projected growth curve JSON string
   createdAt             DateTime @default(now())
   updatedAt             DateTime @updatedAt
 }
