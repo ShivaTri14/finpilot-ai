@@ -1,0 +1,96 @@
+// FinPilot AI - Prisma Schema
+// Compatible with Prisma 7.x & PostgreSQL (Supabase, Neon, Vercel Postgres)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String    @unique
+  passwordHash  String
+  currency      String    @default("INR") // e.g. INR, USD, EUR
+  riskAppetite  String    @default("Medium") // Low, Medium, High
+  avatarUrl     String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  transactions     Transaction[]
+  spendingLimits   SpendingLimit[]
+  goals            Goal[]
+  investmentProfile InvestmentProfile?
+  chatMessages     ChatMessage[]
+}
+
+model Transaction {
+  id            String   @id @default(cuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  amount        Float
+  type          String   // "debit" | "credit"
+  category      String   // Food & Dining, Transportation, Shopping, Bills, Entertainment, Healthcare, Travel, Education, Groceries, Fuel, Investment, Insurance, Miscellaneous
+  date          DateTime
+  description   String
+  paymentMethod String   @default("Manual") // "Manual", "Bank Statement PDF", "SMS Paste"
+  source        String   @default("Manual") // "MANUAL", "PDF_UPLOAD", "SMS_PASTE"
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model SpendingLimit {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  category  String
+  limit     Float
+  period    String   @default("monthly") // "monthly"
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, category])
+}
+
+model Goal {
+  id             String    @id @default(cuid())
+  userId         String
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name           String
+  targetAmount   Float
+  currentSavings Float     @default(0)
+  deadline       DateTime
+  category       String    @default("Custom") // Buy a Car, Buy a House, Buy a Laptop, Vacation, Wedding, Emergency Fund, Retirement, Education, Custom
+  priority       Int       @default(1)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+}
+
+model InvestmentProfile {
+  id                    String   @id @default(cuid())
+  userId                String   @unique
+  user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  age                   Int
+  monthlySalary         Float
+  monthlyExpenses       Float
+  currentSavings        Float
+  emergencyFund         Float
+  netWorthGoal          Float
+  monthlyInvestment     Float
+  investmentDurationYrs Int
+  riskAppetite          String   // Low, Medium, High
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+}
+
+model ChatMessage {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role      String   // "user" | "assistant"
+  content   String
+  createdAt DateTime @default(now())
+}
