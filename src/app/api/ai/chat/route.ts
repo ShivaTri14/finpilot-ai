@@ -106,12 +106,16 @@ export async function POST(req: Request) {
 - Projected Expected Corpus: ${currencySymbol} ${investmentPlan.projectedCorpus.toLocaleString()}
 - Total Principal Invested: ${currencySymbol} ${investmentPlan.totalInvested.toLocaleString()}
 - Goal Achievement Confidence Likelihood: ${investmentPlan.achievementLikelihood}%
-- Asset Allocation Mix: ${investmentPlan.equityPercent}% Equity, ${investmentPlan.debtPercent}% Debt, ${investmentPlan.goldPercent}% Gold
-- Recommended Fund Allocation: UTI Nifty 50 Index Fund (${Math.round((investmentPlan.monthlyInvestment * (investmentPlan.equityPercent * 0.67)) / 100).toLocaleString()}/mo), Parag Parikh Flexi Cap (${Math.round((investmentPlan.monthlyInvestment * (investmentPlan.equityPercent * 0.33)) / 100).toLocaleString()}/mo), HDFC Short Term Debt (${Math.round((investmentPlan.monthlyInvestment * investmentPlan.debtPercent) / 100).toLocaleString()}/mo), Sovereign Gold Bonds (${Math.round((investmentPlan.monthlyInvestment * investmentPlan.goldPercent) / 100).toLocaleString()}/mo).`
+- Asset Allocation Mix: ${investmentPlan.equityPercent}% Equity, ${investmentPlan.debtPercent}% Debt, ${investmentPlan.goldPercent}% Gold`
       : "No investment plan calculated yet.";
 
-    // System Prompt for LLM
-    const systemPrompt = `You are FinPilot AI, a Senior Personal Financial Coach and Chartered Accountant advisor speaking with ${userName}.
+    // Broadened System Prompt
+    const systemPrompt = `You are FinPilot AI, a knowledgeable, broad Personal Finance Assistant, Senior Financial Coach, and Chartered Accountant advisor speaking with ${userName}.
+
+YOUR KNOWLEDGE & SCOPE:
+- You answer ANY personal finance or economic question accurately and concisely (Taxes, Section 80C/ELSS, Credit Scores/CIBIL, Mortgages/Loans, Life & Health Insurance, Retirement accounts 401k/IRA/NPS, Inflation, Stock Market terms, SIPs, Budgeting rules like 50/30/20, Macroeconomics, etc.).
+- When the user asks about their own money, goals, expenses, or investment strategy, reference their EXACT numbers from their live financial snapshot below.
+- Keep responses reasonably concise (2-3 short paragraphs or clean bullet points) by default unless the user asks for deep elaboration.
 
 LIVE FINANCIAL SNAPSHOT:
 Profile: ${userName}, ${userCurrency} currency, ${userRisk} Risk Baseline.
@@ -121,10 +125,7 @@ Financial Goals:
 ${goalsContextStr}
 
 AI Investment Plan:
-${investmentPlanContextStr}
-
-Instructions:
-Answer the user's specific question concisely, professionally, and accurately. If they ask a general financial definition (e.g. "what is equity", "what are sovereign gold bonds"), explain the financial concept clearly in plain language like ChatGPT. If they ask about their personal money, goals, surplus, or investment strategy, reference their exact live numbers.`;
+${investmentPlanContextStr}`;
 
     let assistantReply = "";
 
@@ -164,100 +165,75 @@ Answer the user's specific question concisely, professionally, and accurately. I
       console.warn("LLM API call skipped/fallback triggered:", err);
     }
 
-    // Professional Intent Router (ChatGPT-grade answers for definition & personal questions)
+    // Comprehensive Fallback Knowledge Engine (Handles General Finance + Personal Data seamlessly)
     if (!assistantReply) {
-      // 1. Specific General Educational Definitions (ChatGPT Style)
-      if (promptLower.includes("what is equity") || promptLower === "equity" || promptLower === "what's equity") {
+      // 1. General Financial Concept Definitions (Taxes, Credit Score, SGB, Equity, Debt, SIP, Insurance, Loans)
+      if (promptLower.includes("tax") || promptLower.includes("80c") || promptLower.includes("elss")) {
+        assistantReply = `### Tax Planning & Section 80C Overview
+
+**Section 80C** allows individuals in India to claim tax deductions up to **₹1,50,000 per financial year**:
+
+- **ELSS Mutual Funds (Tax-Saving Funds)**: Has the shortest lock-in period (3 years) among 80C options and offers equity-linked growth (~12-14% CAGR).
+- **Public Provident Fund (PPF)**: 15-year government scheme offering risk-free interest (~7.1% p.a.).
+- **Employee Provident Fund (EPF) & NPS**: Contributions under EPF qualify for 80C, while NPS offers an extra ₹50,000 deduction under 80CCD(1B).
+
+**Coaching Tip:** Investing part of your **${currencySymbol} ${monthlySurplus.toLocaleString()}/mo** surplus into ELSS builds wealth while cutting income tax!`;
+      } else if (promptLower.includes("credit score") || promptLower.includes("cibil") || promptLower.includes("credit rating")) {
+        assistantReply = `### Understanding Credit Scores (CIBIL)
+
+A **Credit Score (CIBIL)** is a 3-digit number ranging from **300 to 900** that evaluates your creditworthiness:
+
+- **750+ (Excellent)**: Unlocks the lowest home loan & personal loan interest rates.
+- **650 – 749 (Fair)**: Eligible for credit cards and loans with standard rates.
+- **Below 650 (Poor)**: Indicates high risk; loans may be rejected or charged higher interest.
+
+**3 Rules to Boost Your Score:**
+1. Pay 100% of credit card bills and loan EMIs on time before the due date.
+2. Keep your Credit Utilization Ratio below **30%** of your total limit.
+3. Avoid applying for multiple loan products simultaneously.`;
+      } else if (promptLower.includes("sovereign gold bond") || promptLower.includes("sgb") || promptLower.includes("gold bond")) {
+        assistantReply = `### Sovereign Gold Bonds (SGBs)
+
+**Sovereign Gold Bonds (SGBs)** are government-backed securities issued by the Reserve Bank of India (RBI) denominated in grams of gold:
+
+- **2.5% Fixed Annual Interest**: Paid semi-annually directly into your bank account.
+- **Tax Exemption**: 100% tax-free capital gains if held until maturity (8 years).
+- **Safety**: No risk of theft or making charges compared to physical gold.
+
+In your FinPilot AI plan, **${investmentPlan?.goldPercent || 10}%** is allocated to Gold/SGBs to hedge your portfolio against inflation!`;
+      } else if (promptLower.includes("equity") && !promptLower.includes("my equity")) {
         assistantReply = `### What is Equity?
 
-**Equity** (also called stocks or shares) represents fractional ownership in a company.
+**Equity** (stocks/shares) represents fractional ownership in a business:
 
-When you buy equity or invest in an **Equity Mutual Fund** (like a Nifty 50 Index Fund):
-1. **Ownership**: You become a part-owner of the businesses in that portfolio.
-2. **Wealth Creation**: As companies grow their profits, the value of your shares increases (capital appreciation), beating inflation over long horizons.
-3. **Returns & Risk**: Historically, equity mutual funds deliver **10% – 14% CAGR** over 5-10+ years, though short-term market prices fluctuate.
+- **Wealth Compounder**: Over 5-10+ year horizons, equity mutual funds (like Nifty 50 Index Funds) historically deliver **10%–14% CAGR**, beating inflation.
+- **Risk & Reward**: Higher short-term price fluctuations in exchange for superior long-term capital appreciation.
 
-In your FinPilot AI portfolio, **${investmentPlan?.equityPercent || 60}%** is allocated to Equity to drive long-term compound growth for your net worth goal!`;
-      } else if (
-        promptLower.includes("sovereign gold bond") ||
-        promptLower.includes("sgb") ||
-        promptLower.includes("what is gold bond") ||
-        promptLower.includes("what are sovereign gold bonds")
-      ) {
-        assistantReply = `### What are Sovereign Gold Bonds (SGBs)?
-
-**Sovereign Gold Bonds (SGBs)** are government-backed securities denominated in grams of gold issued by the Reserve Bank of India (RBI). They are an ideal substitute for holding physical gold.
-
-**Key Benefits:**
-1. **Capital Appreciation**: Your investment value tracks the market price of gold.
-2. **2.5% p.a. Fixed Interest**: You earn a 2.5% annual interest payout on your initial investment amount, paid semi-annually into your bank account.
-3. **Tax Exemption**: Capital gains are **100% tax-free** if held until full maturity (8 years).
-4. **Safety**: Zero risk of theft, storage fees, or making charges associated with physical gold jewelry or coins.
-
-In your FinPilot AI portfolio, **${investmentPlan?.goldPercent || 10}%** is allocated to Gold/SGBs to hedge your wealth against market inflation!`;
-      } else if (promptLower.includes("what is debt") || promptLower.includes("what are debt funds") || promptLower.includes("bond")) {
+In your plan, **${investmentPlan?.equityPercent || 60}%** is allocated to Equity to compound your net worth!`;
+      } else if (promptLower.includes("debt") && !promptLower.includes("my debt")) {
         assistantReply = `### What is Debt / Fixed Income?
 
-**Debt investments** (such as Corporate Bonds, Government Securities, and Debt Mutual Funds) involve lending money to corporations or the government in exchange for regular interest payments.
+**Debt investments** (Bonds, Fixed Deposits, Debt Mutual Funds) involve lending capital to corporations or government bodies:
 
-**Why Debt is Essential in a Portfolio:**
-- **Capital Protection**: Lower volatility compared to stock market equities.
-- **Predictable Income**: Generates steady 6%–8% returns.
-- **Downside Buffer**: Protects your net worth during stock market downturns.
+- **Capital Preservation**: Lower risk and steady interest returns (~6%–8% p.a.).
+- **Market Buffer**: Shields your net worth when stock markets experience corrections.
 
-In your FinPilot AI portfolio, **${investmentPlan?.debtPercent || 30}%** is allocated to Debt Funds (like HDFC Short Term Debt Fund) to keep your capital secure!`;
-      } else if (promptLower.includes("what is mutual fund") || promptLower.includes("mutual fund")) {
-        assistantReply = `### What is a Mutual Fund?
+In your plan, **${investmentPlan?.debtPercent || 30}%** is allocated to Debt Funds for capital stability!`;
+      } else if (promptLower.includes("insurance") || promptLower.includes("term insurance") || promptLower.includes("health insurance")) {
+        assistantReply = `### Insurance Essentials
 
-A **Mutual Fund** pools money from thousands of investors to purchase a diversified portfolio of stocks, bonds, or commodities managed by professional fund managers.
+1. **Term Life Insurance**: Provides a pure death benefit payload (e.g. 10x–15x your annual income) for your dependents at low premium rates.
+2. **Health Insurance**: Protects your emergency reserve from catastrophic medical bills.
 
-**Why Invest via Mutual Funds:**
-- **Instant Diversification**: A single ₹500 SIP spreads your money across 50+ top companies (like Reliance, HDFC, TCS, Infosys).
-- **Rupee-Cost Averaging**: Regular monthly SIPs buy more units when prices drop and fewer when prices rise.
-- **Professional Management**: Managed by experienced fund managers following strict regulatory guidelines.`;
-      } else if (
-        promptLower.includes("spend") ||
-        promptLower.includes("expense") ||
-        promptLower.includes("cost") ||
-        promptLower.includes("where am i spending")
-      ) {
-        if (sortedCategories.length > 0) {
-          const top1 = sortedCategories[0];
-          const top2 = sortedCategories[1];
+**Rule of Thumb:** Secure your term life cover and health insurance BEFORE starting heavy equity investments!`;
+      } else if (promptLower.includes("loan") || promptLower.includes("mortgage") || promptLower.includes("emi")) {
+        assistantReply = `### Smart Debt & Loan Strategy
 
-          assistantReply = `### Your Live Expense Breakdown
-
-Your total recorded expense this month is **${currencySymbol} ${totalExpense.toLocaleString()}**.
-
-**Top Spending Categories:**
-1. **${top1[0]}**: **${currencySymbol} ${top1[1].toLocaleString()}** (${Math.round((top1[1] / (totalExpense || 1)) * 100)}% of total spend)
-${top2 ? `2. **${top2[0]}**: **${currencySymbol} ${top2[1].toLocaleString()}** (${Math.round((top2[1] / (totalExpense || 1)) * 100)}% of total spend)` : ""}
-
-You retain **${currencySymbol} ${monthlySurplus.toLocaleString()}/mo** in net monthly surplus for your goals!`;
-        } else {
-          assistantReply = `You haven't recorded any expenses yet! Go to the **Transactions** page to upload a bank statement PDF or paste SMS messages.`;
-        }
-      } else if (promptLower.includes("goal") || promptLower.includes("track") || promptLower.includes("target")) {
-        if (rawGoals.length > 0) {
-          const goalListFormatted = rawGoals
-            .map((g) => {
-              const diffMs = new Date(g.deadline).getTime() - now.getTime();
-              const m = Math.max(1, Math.ceil(diffMs / (1000 * 60 * 60 * 24 * 30)));
-              const req = Math.round(Math.max(0, g.targetAmount - g.currentSavings) / m);
-              const status = req <= monthlySurplus * 0.8 ? "🟢 On Track" : req <= monthlySurplus * 1.2 ? "🟡 At Risk" : "🔴 Unrealistic";
-              return `- **${g.name}**: Target ${currencySymbol} ${g.targetAmount.toLocaleString()} (${g.currentSavings > 0 ? `Saved ${currencySymbol} ${g.currentSavings.toLocaleString()}` : "0 saved"}). Requires **${currencySymbol} ${req.toLocaleString()}/mo** $\rightarrow$ **${status}**`;
-            })
-            .join("\n");
-
-          assistantReply = `### Financial Goals Feasibility Analysis
-
-You have **${rawGoals.length} active financial goals** vs your average monthly surplus of **${currencySymbol} ${monthlySurplus.toLocaleString()}/mo**:
-
-${goalListFormatted}`;
-        } else {
-          assistantReply = `You haven't configured any financial goals yet! Head over to the **Goals** page to add goals using presets like *Emergency Fund* or *Buy a Laptop*.`;
-        }
-      } else if (
+- **Good Debt (Home Loans / Education Loans)**: Low interest rates (8-9%) backed by appreciating assets or income capacity, plus tax benefits under Sec 24(b).
+- **Bad Debt (Credit Cards / Personal Loans)**: High interest rates (18-42% p.a.). Pay these off aggressively before investing!`;
+      }
+      // 2. Personal Financial Snapshot Questions
+      else if (
         promptLower.includes("my plan") ||
         promptLower.includes("my strategy") ||
         promptLower.includes("my allocation") ||
@@ -275,17 +251,56 @@ ${goalListFormatted}`;
 
 Based on your **${userRisk} Risk** profile and age of **${investmentPlan?.age || 28}**, FinPilot AI assigned:
 
-- **${eq}% Equity** (UTI Nifty 50 Index Fund & Parag Parikh Flexi Cap Fund)
-- **${db}% Debt** (HDFC Short Term Debt Fund)
-- **${gd}% Gold** (Sovereign Gold Bonds / Nippon Gold ETF)
+- **${eq}% Equity**: UTI Nifty 50 Index Fund (${currencySymbol} ${Math.round((sip * eq * 0.67) / 100).toLocaleString()}/mo) & Parag Parikh Flexi Cap (${currencySymbol} ${Math.round((sip * eq * 0.33) / 100).toLocaleString()}/mo)
+- **${db}% Debt**: HDFC Short Term Debt Fund (${currencySymbol} ${Math.round((sip * db) / 100).toLocaleString()}/mo)
+- **${gd}% Gold**: Sovereign Gold Bonds / Nippon Gold ETF (${currencySymbol} ${Math.round((sip * gd) / 100).toLocaleString()}/mo)
 
 Investing **${currencySymbol} ${sip.toLocaleString()}/mo** over **${investmentPlan?.investmentDurationYrs || 10} years** projects a total corpus of **${currencySymbol} ${corpus.toLocaleString()}** toward your **${currencySymbol} ${target.toLocaleString()}** goal.`;
+      } else if (promptLower.includes("spend") || promptLower.includes("expense") || promptLower.includes("my spending")) {
+        if (sortedCategories.length > 0) {
+          const top1 = sortedCategories[0];
+          const top2 = sortedCategories[1];
+
+          assistantReply = `### Your Live Expense Breakdown
+
+Total monthly expenses: **${currencySymbol} ${totalExpense.toLocaleString()}**.
+
+**Top Categories:**
+1. **${top1[0]}**: **${currencySymbol} ${top1[1].toLocaleString()}** (${Math.round((top1[1] / (totalExpense || 1)) * 100)}%)
+${top2 ? `2. **${top2[0]}**: **${currencySymbol} ${top2[1].toLocaleString()}** (${Math.round((top2[1] / (totalExpense || 1)) * 100)}%)` : ""}
+
+You retain **${currencySymbol} ${monthlySurplus.toLocaleString()}/mo** in net monthly surplus for your financial goals!`;
+        } else {
+          assistantReply = `You haven't recorded any expenses yet! Upload a bank statement PDF or paste SMS text on the **Transactions** page to view your spending breakdown.`;
+        }
+      } else if (promptLower.includes("my goal") || promptLower.includes("my track") || promptLower.includes("my target")) {
+        if (rawGoals.length > 0) {
+          const goalListFormatted = rawGoals
+            .map((g) => {
+              const diffMs = new Date(g.deadline).getTime() - now.getTime();
+              const m = Math.max(1, Math.ceil(diffMs / (1000 * 60 * 60 * 24 * 30)));
+              const req = Math.round(Math.max(0, g.targetAmount - g.currentSavings) / m);
+              const status = req <= monthlySurplus * 0.8 ? "🟢 On Track" : req <= monthlySurplus * 1.2 ? "🟡 At Risk" : "🔴 Unrealistic";
+              return `- **${g.name}**: Target ${currencySymbol} ${g.targetAmount.toLocaleString()} (${g.currentSavings > 0 ? `Saved ${currencySymbol} ${g.currentSavings.toLocaleString()}` : "0 saved"}). Requires **${currencySymbol} ${req.toLocaleString()}/mo** $\rightarrow$ **${status}**`;
+            })
+            .join("\n");
+
+          assistantReply = `### Your Financial Goals Analysis
+
+You have **${rawGoals.length} active goals** vs monthly surplus of **${currencySymbol} ${monthlySurplus.toLocaleString()}/mo**:
+
+${goalListFormatted}`;
+        } else {
+          assistantReply = `You haven't set up any goals yet. Add goals on the **Goals** page using presets like *Emergency Fund* or *Buy a Laptop*.`;
+        }
       } else {
-        assistantReply = `Hello ${userName}! As your personal FinPilot AI coach, I'm analyzing your profile (**${userRisk} Risk**, Currency **${currencySymbol}**).
+        assistantReply = `Hello ${userName}! As your personal FinPilot AI coach, I'm here to help with any personal finance topic (**Taxes, Credit Scores, Insurance, Mutual Funds, Loans**) or analyze your personal financial snapshot:
 
-Currently, you have recorded **${currencySymbol} ${monthlySurplus.toLocaleString()}** in net monthly surplus and **${rawGoals.length}** active financial goals.
+- **Net Monthly Surplus:** ${currencySymbol} ${monthlySurplus.toLocaleString()}/mo
+- **Active Financial Goals:** ${rawGoals.length} goals
+- **Projected SIP Corpus:** ${currencySymbol} ${(investmentPlan?.projectedCorpus || 5834882).toLocaleString()} (${investmentPlan?.equityPercent || 60}% Equity / ${investmentPlan?.debtPercent || 30}% Debt / ${investmentPlan?.goldPercent || 10}% Gold)
 
-How can I help you understand financial concepts, evaluate your expense budget, or optimize your SIP investments today?`;
+How can I help you today?`;
       }
     }
 

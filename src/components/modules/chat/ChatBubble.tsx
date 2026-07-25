@@ -1,7 +1,9 @@
 "use client";
 
-import { Bot, User, Copy, Check } from "lucide-react";
+import { Bot, Copy, Check } from "lucide-react";
 import { useState } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 interface ChatBubbleProps {
   role: "user" | "assistant";
@@ -29,7 +31,7 @@ export default function ChatBubble({ role, content, timestamp, userName }: ChatB
       )}
 
       <div
-        className={`max-w-[85%] sm:max-w-[75%] rounded-3xl p-4 sm:p-5 space-y-2 relative shadow-lg ${
+        className={`max-w-[88%] sm:max-w-[78%] rounded-3xl p-4 sm:p-5 space-y-2 relative shadow-lg ${
           isAssistant
             ? "bg-slate-900 border border-slate-800 text-slate-100 rounded-tl-sm"
             : "bg-emerald-500 text-slate-950 rounded-tr-sm font-medium"
@@ -53,8 +55,39 @@ export default function ChatBubble({ role, content, timestamp, userName }: ChatB
           </div>
         </div>
 
-        <div className={`text-xs leading-relaxed whitespace-pre-line ${isAssistant ? "text-slate-200" : "text-slate-950 font-medium"}`}>
-          {content}
+        <div className={`text-xs leading-relaxed ${isAssistant ? "text-slate-200" : "text-slate-950 font-medium"}`}>
+          {isAssistant ? (
+            <ReactMarkdown
+              remarkPlugins={[remarkGfm]}
+              components={{
+                h1: ({ children }) => <h1 className="text-sm font-bold text-white mb-2 border-b border-slate-800 pb-1">{children}</h1>,
+                h2: ({ children }) => <h2 className="text-xs font-bold text-purple-300 mt-3 mb-1.5">{children}</h2>,
+                h3: ({ children }) => <h3 className="text-xs font-bold text-emerald-400 mt-2 mb-1">{children}</h3>,
+                p: ({ children }) => <p className="mb-2 last:mb-0 text-slate-300 leading-relaxed">{children}</p>,
+                strong: ({ children }) => <strong className="font-extrabold text-white">{children}</strong>,
+                em: ({ children }) => <em className="italic text-slate-300">{children}</em>,
+                ul: ({ children }) => <ul className="list-disc list-inside space-y-1 mb-2.5 text-slate-300">{children}</ul>,
+                ol: ({ children }) => <ol className="list-decimal list-inside space-y-1 mb-2.5 text-slate-300">{children}</ol>,
+                li: ({ children }) => <li className="text-xs leading-relaxed">{children}</li>,
+                blockquote: ({ children }) => (
+                  <blockquote className="border-l-2 border-purple-400 pl-3 py-1 text-slate-400 my-2 italic bg-slate-950/40 rounded-r">
+                    {children}
+                  </blockquote>
+                ),
+                table: ({ children }) => (
+                  <div className="overflow-x-auto my-3 border border-slate-800 rounded-xl">
+                    <table className="w-full text-left text-xs border-collapse">{children}</table>
+                  </div>
+                ),
+                th: ({ children }) => <th className="bg-slate-950 p-2 font-bold text-slate-300 border-b border-slate-800">{children}</th>,
+                td: ({ children }) => <td className="p-2 border-b border-slate-800/60 text-slate-300">{children}</td>,
+              }}
+            >
+              {content}
+            </ReactMarkdown>
+          ) : (
+            <p className="whitespace-pre-line">{content}</p>
+          )}
         </div>
       </div>
 

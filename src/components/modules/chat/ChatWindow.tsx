@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { Send, Bot, Loader2, Trash2, RefreshCw, Sparkles } from "lucide-react";
+import { Send, Bot, Loader2, Trash2, Sparkles } from "lucide-react";
 import ChatBubble from "./ChatBubble";
 import SuggestedQuestions from "./SuggestedQuestions";
 
@@ -109,11 +109,11 @@ export default function ChatWindow({ userName }: ChatWindowProps) {
           </div>
           <div>
             <h2 className="text-base font-bold text-white flex items-center gap-2">
-              <span>FinPilot Context-Aware Advisor</span>
+              <span>FinPilot Broad Finance & Personal Coach</span>
               <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
             </h2>
             <p className="text-xs text-slate-400">
-              Live account context: Goals, Expenses & Investment Plan injected
+              Broad Finance Knowledge: Taxes, Credit, Markets + Live Account Snapshot
             </p>
           </div>
         </div>
@@ -141,14 +141,14 @@ export default function ChatWindow({ userName }: ChatWindowProps) {
             </div>
             <h3 className="text-lg font-bold text-white">Ask your AI Financial Coach anything</h3>
             <p className="text-xs text-slate-400 leading-relaxed">
-              I have full real-time awareness of your goals, monthly surplus, spending categories, and calculated SIP investment model.
+              Ask any finance question (taxes, credit scores, stock terms, SIPs, emergency funds) or ask about your live goals, expenses, and investment plan!
             </p>
           </div>
         ) : (
           messages.map((msg) => (
             <ChatBubble
               key={msg.id}
-              role={msg.role}
+              role={msg.role as any}
               content={msg.content}
               timestamp={new Date(msg.createdAt).toLocaleTimeString([], {
                 hour: "2-digit",
@@ -166,7 +166,7 @@ export default function ChatWindow({ userName }: ChatWindowProps) {
             </div>
             <div className="p-4 rounded-3xl bg-slate-900 border border-slate-800 text-xs text-slate-400 flex items-center gap-2">
               <Loader2 className="h-4 w-4 animate-spin text-purple-400" />
-              <span>FinPilot AI is analyzing your live financial context...</span>
+              <span>FinPilot AI is researching your question...</span>
             </div>
           </div>
         )}
@@ -175,7 +175,7 @@ export default function ChatWindow({ userName }: ChatWindowProps) {
       </div>
 
       {/* Suggested Starter Questions & Input Area */}
-      <div className="p-4 sm:p-6 border-t border-slate-800 bg-slate-950/60 space-y-4">
+      <div className="p-4 sm:p-6 border-t border-slate-800 bg-slate-950/60 space-y-3">
         <SuggestedQuestions onSelect={(q) => handleSend(q)} />
 
         <form
@@ -187,7 +187,7 @@ export default function ChatWindow({ userName }: ChatWindowProps) {
         >
           <input
             type="text"
-            placeholder="Ask about your financial plan, goals, or strategy..."
+            placeholder="Ask about taxes, credit scores, SIPs, or your personal plan..."
             value={input}
             onChange={(e) => setInput(e.target.value)}
             disabled={loading}
@@ -202,6 +202,10 @@ export default function ChatWindow({ userName }: ChatWindowProps) {
             <Send className="h-4 w-4" />
           </button>
         </form>
+
+        <p className="text-[10px] text-center text-slate-500 pt-0.5">
+          FinPilot AI provides educational financial coaching and market analysis, not licensed financial or investment advice.
+        </p>
       </div>
     </div>
   );
