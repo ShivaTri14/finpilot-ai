@@ -47,7 +47,7 @@ export async function GET(req: Request) {
       orderBy: { priority: "asc" },
     });
 
-    // 3. Compute feasibility & projected timeline per goal
+    // 3. Compute progress, required savings, and feasibility status per goal
     const goals = rawGoals.map((goal) => {
       const target = goal.targetAmount;
       const current = goal.currentSavings;
@@ -62,23 +62,37 @@ export async function GET(req: Request) {
       // Required monthly savings math: (Target - Current) / monthsRemaining
       const requiredMonthlySavings = Math.round(remaining / monthsRemaining);
 
-      // Progress percentage
+      // Progress percentage (current savings vs target amount)
       const progressPercent = target > 0 ? Math.min(100, Math.round((current / target) * 100)) : 0;
 
-      // Status calculation: On Track / At Risk / Unrealistic
+      // Status calculation: ON_TRACK / AT_RISK / UNREALISTIC
       let status: "ON_TRACK" | "AT_RISK" | "UNREALISTIC" = "ON_TRACK";
+
       if (current >= target) {
         status = "ON_TRACK";
-      } else if (monthlySurplus <= 0) {
-        status = "UNREALISTIC";
       } else {
-        const ratio = requiredMonthlySavings / monthlySurplus;
-        if (ratio <= 0.8) {
-          status = "ON_TRACK";
-        } else if (ratio <= 1.2) {
-          status = "AT_RISK";
+        // Use effective surplus (with fallback baseline if no income logged yet)
+        const effectiveSurplus = monthlySurplus > 0 ? monthlySurplus : 25000;
+        const ratio = requiredMonthlySavings / effectiveSurplus;
+
+        if (progressPercent >= 50) {
+          // Goals >= 50% funded:
+          if (ratio <= 1.25) {
+            status = "ON_TRACK";
+          } else if (ratio <= 2.5) {
+            status = "AT_RISK";
+          } else {
+            status = "UNREALISTIC";
+          }
         } else {
-          status = "UNREALISTIC";
+          // Goals < 50% funded:
+          if (ratio <= 0.8) {
+            status = "ON_TRACK";
+          } else if (ratio <= 1.3) {
+            status = "AT_RISK";
+          } else {
+            status = "UNREALISTIC";
+          }
         }
       }
 
@@ -86,16 +100,15 @@ export async function GET(req: Request) {
       let projectedDate: string | null = null;
       if (current >= target) {
         projectedDate = "Completed";
-      } else if (monthlySurplus > 0 && remaining > 0) {
-        const projectedMonthsNeeded = Math.ceil(remaining / monthlySurplus);
+      } else {
+        const effectiveRate = monthlySurplus > 0 ? monthlySurplus : 25000;
+        const projectedMonthsNeeded = Math.ceil(remaining / effectiveRate);
         const projDateObj = new Date(now);
         projDateObj.setMonth(projDateObj.getMonth() + projectedMonthsNeeded);
         projectedDate = projDateObj.toLocaleDateString("en-US", {
           month: "short",
           year: "numeric",
         });
-      } else {
-        projectedDate = "Indefinite (No Surplus)";
       }
 
       return {
