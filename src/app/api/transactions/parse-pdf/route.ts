@@ -2,9 +2,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-
-// Safe CommonJS require for Next.js App Router serverless environment
-const PdfParse = require("pdf-parse");
+import * as pdfjs from "pdfjs-dist/legacy/build/pdf.mjs";
 
 // Enable maximum serverless execution time for bulk statement uploads
 export const maxDuration = 60;
@@ -40,6 +38,29 @@ function parseMonthYearDay(rawDateStr: string): string {
   return new Date().toISOString().split("T")[0];
 }
 
+async function extractPdfTextWithPdfJs(buffer: Buffer): Promise<{ text: string; numPages: number }> {
+  const data = new Uint8Array(buffer);
+  const loadingTask = pdfjs.getDocument({
+    data,
+    useSystemFonts: true,
+    disableFontFace: true,
+  });
+  const pdfDoc = await loadingTask.promise;
+  const numPages = pdfDoc.numPages;
+  let fullText = "";
+
+  for (let i = 1; i <= numPages; i++) {
+    const page = await pdfDoc.getPage(i);
+    const textContent = await page.getTextContent();
+    const pageText = textContent.items
+      .map((item: any) => item.str || "")
+      .join(" ");
+    fullText += `\n--- Page ${i} ---\n` + pageText;
+  }
+
+  return { text: fullText, numPages };
+}
+
 export async function POST(req: Request) {
   const startTime = Date.now();
   try {
@@ -65,13 +86,13 @@ export async function POST(req: Request) {
     let pdfText = "";
     let numPages = 1;
 
-    // NO SILENT FALLBACK TO RAW BINARY BUFFER!
+    // Pure Serverless-friendly pdfjs-dist extraction
     try {
-      const parsedPdf = await PdfParse(buffer);
-      pdfText = parsedPdf.text || "";
-      numPages = parsedPdf.numpages || 1;
+      const extracted = await extractPdfTextWithPdfJs(buffer);
+      pdfText = extracted.text;
+      numPages = extracted.numPages;
     } catch (e: any) {
-      console.error("[PDF PARSE FATAL ERROR]", e.message, e.stack);
+      console.error("[PDFJS EXTRACT FATAL ERROR]", e.message, e.stack);
       return NextResponse.json(
         {
           error: `PDF text extraction failed: ${e.message || String(e)}`,
@@ -82,7 +103,7 @@ export async function POST(req: Request) {
       );
     }
 
-    // DEBUG MODE RAW TEXT & CHAR CODE DUMP GENERATION
+    // DEBUG MODE RAW TEXT PREVIEW & CHAR CODE DUMP
     let rawTextPreview = "";
     let charCodeDump: Array<{ index: number; char: string; code: number }> = [];
 
