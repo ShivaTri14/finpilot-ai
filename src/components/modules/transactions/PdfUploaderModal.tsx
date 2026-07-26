@@ -60,7 +60,25 @@ export default function PdfUploaderModal({
         body: formData,
       });
 
-      const data = await res.json();
+      // Safe non-JSON & 504 Timeout handling
+      if (res.status === 504) {
+        setError("Server took too long processing this file — try a smaller statement or contact support.");
+        return;
+      }
+
+      let data: any = {};
+      const contentType = res.headers.get("content-type");
+      if (contentType && contentType.includes("application/json")) {
+        try {
+          data = await res.json();
+        } catch (jsonErr) {
+          setError("Failed to parse server response.");
+          return;
+        }
+      } else {
+        setError("Server returned invalid response format. Please try again.");
+        return;
+      }
 
       if (!res.ok) {
         setError(data.error || "Failed to parse PDF file.");
@@ -68,7 +86,7 @@ export default function PdfUploaderModal({
         setParsedRows(data.rows || []);
       }
     } catch (err: any) {
-      setError("An unexpected error occurred while processing PDF.");
+      setError("Server took too long processing this file — try a smaller statement or contact support.");
     } finally {
       setParsing(false);
     }
@@ -132,8 +150,9 @@ export default function PdfUploaderModal({
         {/* Content Body */}
         <div className="p-6 space-y-6 overflow-y-auto flex-1">
           {error && (
-            <div className="p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-400 text-xs">
-              {error}
+            <div className="p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-400 text-xs flex items-center gap-2">
+              <AlertCircle className="h-4 w-4 shrink-0 text-rose-400" />
+              <span>{error}</span>
             </div>
           )}
 
@@ -142,7 +161,7 @@ export default function PdfUploaderModal({
               <div className="border-2 border-dashed border-slate-800 hover:border-purple-500/40 rounded-2xl p-8 text-center bg-slate-950/40 transition-colors">
                 <Upload className="h-10 w-10 text-purple-400 mx-auto mb-3" />
                 <p className="text-sm font-semibold text-white">Upload Bank Statement (.pdf)</p>
-                <p className="text-xs text-slate-400 mt-1">HDFC, ICICI, SBI, Axis, or standard bank statement PDFs</p>
+                <p className="text-xs text-slate-400 mt-1">PhonePe, HDFC, ICICI, SBI, Axis, or standard bank statement PDFs</p>
                 <input
                   type="file"
                   accept=".pdf"
