@@ -22,11 +22,13 @@ export async function POST(req: Request) {
     const buffer = Buffer.from(bytes);
 
     let pdfText = "";
+    let numPages = 1;
+
     try {
-      // Dynamic import for pdf-parse compatibility
       const pdf = require("pdf-parse");
       const parsedPdf = await pdf(buffer);
       pdfText = parsedPdf.text || "";
+      numPages = parsedPdf.numpages || 1;
     } catch (e) {
       console.warn("pdf-parse extraction fallback:", e);
       pdfText = buffer.toString("utf-8");
@@ -44,128 +46,84 @@ export async function POST(req: Request) {
       source: string;
     }> = [];
 
-    // Supported date formats: DD/MM/YYYY, DD-MM-YYYY, DD/MM/YY, YYYY-MM-DD, DD MMM YYYY (e.g., 01 Jan 2026)
-    const datePattern = /(?:^|\s)(\d{1,2}[\/\-\.](?:\d{1,2}|[A-Za-z]{3})[\/\-\.]\d{2,4}|\d{4}[\/\-\.]\d{1,2}[\/\-\.]\d{1,2})(?:\s|$)/i;
-    // Supported amount pattern: numbers with commas/decimals, optionally prefixed with ₹/$ and suffixed with CR/DR
-    const numberPattern = /[₹$€£]?\s*[\d,]+(?:\.\d{1,2})?\s*(?:CR|DR|Credit|Debit)?/gi;
+    // Real PhonePe PDF Statement Block Parser
+    // Block Date Header: "Jul 24, 2026 08:27 pm" or "Jul 24, 2026"
+    // Transaction Line: "Paid to Rajesh fast food DEBIT ₹13 Transaction ID T... UTR No. ... Paid by XXXXXX2985"
+    // Credit Line: "Received from Mr Saurabh Mishra CREDIT ₹1,000 Transaction ID T... UTR No. ... Credited to XXXXXX2985"
+    const phonepeDateRegex = /^([A-Z][a-z]{2}\s+\d{1,2},\s+\d{4})/i;
 
-    let currentTransaction: {
-      date: string;
-      description: string;
-      amount: number;
-      type: "debit" | "credit";
-    } | null = null;
+    let currentDateStr = "";
 
     for (let i = 0; i < rawLines.length; i++) {
       const line = rawLines[i].trim();
       if (!line) continue;
 
-      // Filter out common PDF header/footer noise (page numbers, balance headers)
+      // Filter out header/footer noise
       if (
         /page \d+ of \d+/i.test(line) ||
-        /statement of account|opening balance|closing balance|particulars|chq\/ref no/i.test(line)
+        /phonepe transaction statement|support\.phonepe\.com|transaction details/i.test(line)
       ) {
         continue;
       }
 
-      const dateMatch = line.match(datePattern);
-
+      // Check if line is a Date Header
+      const dateMatch = line.match(phonepeDateRegex);
       if (dateMatch) {
-        // Line starts or contains a transaction date
-        const rawDate = dateMatch[1];
-        
-        // Find all financial amounts on this line (Debit, Credit, Balance)
-        const amountMatches = line.match(/[₹$€£]?\s*[\d,]+\.\d{2}/g) || line.match(/[₹$€£]?\s*[\d,]+/g);
-
-        if (amountMatches && amountMatches.length > 0) {
-          // Clean description by stripping out the date and amounts
-          let desc = line
-            .replace(dateMatch[0], " ")
-            .replace(/[₹$€£]?\s*[\d,]+(?:\.\d{1,2})?/g, " ")
-            .replace(/\b(CR|DR|Credit|Debit|UPI|NEFT|IMPS|POS|ACH)\b/gi, " ")
-            .replace(/\s+/g, " ")
-            .trim();
-
-          if (!desc || desc.length < 2) {
-            desc = "Bank Transaction";
+        // Standardize Date string to YYYY-MM-DD
+        const rawDate = dateMatch[1]; // e.g. "Jul 24, 2026"
+        try {
+          const parsedD = new Date(rawDate);
+          if (!isNaN(parsedD.getTime())) {
+            currentDateStr = parsedD.toISOString().split("T")[0];
           }
+        } catch (e) {
+          currentDateStr = new Date().toISOString().split("T")[0];
+        }
+        continue;
+      }
 
-          // Determine transaction amount: prefer first non-balance amount if multiple exist
-          const parsedAmounts = amountMatches
-            .map((a) => parseFloat(a.replace(/[₹$€£,\s]/g, "")))
-            .filter((a) => !isNaN(a) && a > 0);
+      // Check for PhonePe Paid to / Received from transaction line
+      const paidToMatch = line.match(/(?:Paid to|Received from)\s+(.+?)\s+(DEBIT|CREDIT)\s+[₹$€£]?\s*([\d,]+(?:\.\d{1,2})?)/i);
 
-          if (parsedAmounts.length > 0) {
-            const amount = parsedAmounts[0];
-            const isCredit = /credit|\bcr\b|refund|deposit|salary|interest/i.test(line);
-            const type = isCredit ? "credit" : "debit";
+      if (paidToMatch) {
+        const rawPayee = paidToMatch[1].trim();
+        const typeKeyword = paidToMatch[2].toUpperCase();
+        const rawAmount = paidToMatch[3].replace(/,/g, "");
+        const amount = parseFloat(rawAmount);
 
-            // Standardize Date format to YYYY-MM-DD
-            let dateStr = new Date().toISOString().split("T")[0];
-            try {
-              const dParts = rawDate.split(/[\/\-\.]/);
-              if (dParts.length === 3) {
-                let day = dParts[0].padStart(2, "0");
-                let month = dParts[1];
-                let year = dParts[2];
-                if (year.length === 2) year = "20" + year;
+        const type: "debit" | "credit" = typeKeyword === "CREDIT" ? "credit" : "debit";
 
-                // Month mapping if named month (Jan, Feb, etc.)
-                const monthMap: Record<string, string> = {
-                  jan: "01", feb: "02", mar: "03", apr: "04", may: "05", jun: "06",
-                  jul: "07", aug: "08", sep: "09", oct: "10", nov: "11", dec: "12"
-                };
+        // Clean payee description (handles emojis like Papa❤ gracefully)
+        const description = rawPayee || "PhonePe Transaction";
 
-                if (isNaN(Number(month))) {
-                  month = monthMap[month.toLowerCase()] || "01";
-                } else {
-                  month = month.padStart(2, "0");
-                }
+        if (!isNaN(amount) && amount > 0) {
+          const catResult = await categorizeTransaction(description, userId);
 
-                dateStr = `${year}-${month}-${day}`;
-              }
-            } catch (err) {}
-
-            const catResult = await categorizeTransaction(desc, userId);
-
-            extractedRows.push({
-              date: dateStr,
-              description: desc,
-              amount,
-              type,
-              category: catResult.category,
-              paymentMethod: "Bank Statement PDF",
-              source: "PDF_UPLOAD",
-            });
-          }
+          extractedRows.push({
+            date: currentDateStr || new Date().toISOString().split("T")[0],
+            description,
+            amount,
+            type,
+            category: catResult.category,
+            paymentMethod: "PhonePe Statement PDF",
+            source: "PDF_UPLOAD",
+          });
         }
       }
     }
 
-    // Fallback sample rows if PDF is completely un-scannable scanned image PDF
-    if (extractedRows.length === 0) {
-      const sampleDescriptions = [
-        "HDFC Bank Debit - DMart Supermarket",
-        "UPI-Swiggy Food Delivery",
-        "Utility Electricity Bill Payment",
-        "ICICI Direct Mutual Fund Investment",
-      ];
-      for (const desc of sampleDescriptions) {
-        const catRes = await categorizeTransaction(desc, userId);
-        extractedRows.push({
-          date: new Date().toISOString().split("T")[0],
-          description: desc,
-          amount: Math.floor(Math.random() * 2500) + 350,
-          type: "debit",
-          category: catRes.category,
-          paymentMethod: "Bank Statement PDF",
-          source: "PDF_UPLOAD",
-        });
-      }
+    // DIAGNOSTIC LOGGING (Requested by User)
+    console.log("==========================================");
+    console.log(`[REAL PHONEPE PDF LOG] Pages Detected: ${numPages}`);
+    console.log(`[REAL PHONEPE PDF LOG] Total Characters Extracted: ${pdfText.length}`);
+    console.log(`[REAL PHONEPE PDF LOG] Total Transactions Extracted: ${extractedRows.length}`);
+    if (extractedRows.length > 0) {
+      console.log(`[REAL PHONEPE PDF LOG] First 3 Rows Sample:`, JSON.stringify(extractedRows.slice(0, 3), null, 2));
     }
+    console.log("==========================================");
 
     return NextResponse.json({
-      message: `Successfully parsed ${extractedRows.length} transactions from PDF statement across all pages`,
+      message: `Successfully extracted ${extractedRows.length} transactions from PhonePe PDF statement across ${numPages} pages`,
       rows: extractedRows,
     });
   } catch (error: any) {

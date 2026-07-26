@@ -41,6 +41,15 @@ export async function GET(req: Request) {
     const netSurplus = totalIncome - totalExpense;
     const monthlySurplus = Math.max(0, netSurplus / monthsSpan);
 
+    // Transaction history sufficiency check:
+    // User must have at least 1 credit/income transaction AND at least 14 days of logged transaction history
+    const hasIncomeData = totalIncome > 0;
+    const txSpanDays =
+      transactions.length > 0
+        ? Math.ceil((now.getTime() - earliestDate.getTime()) / (1000 * 60 * 60 * 24))
+        : 0;
+    const isSufficientData = hasIncomeData && txSpanDays >= 14;
+
     // 2. Fetch User Goals
     const rawGoals = await prisma.goal.findMany({
       where: { userId },
@@ -65,15 +74,16 @@ export async function GET(req: Request) {
       // Progress percentage (current savings vs target amount)
       const progressPercent = target > 0 ? Math.min(100, Math.round((current / target) * 100)) : 0;
 
-      // Status calculation: ON_TRACK / AT_RISK / UNREALISTIC
-      let status: "ON_TRACK" | "AT_RISK" | "UNREALISTIC" = "ON_TRACK";
+      // Feasibility status evaluation
+      let status: "ON_TRACK" | "AT_RISK" | "UNREALISTIC" | "INSUFFICIENT_DATA" = "ON_TRACK";
 
       if (current >= target) {
         status = "ON_TRACK";
+      } else if (!isSufficientData || monthlySurplus <= 0) {
+        // Distinct status when income data or transaction history is insufficient
+        status = "INSUFFICIENT_DATA";
       } else {
-        // Use effective surplus (with fallback baseline if no income logged yet)
-        const effectiveSurplus = monthlySurplus > 0 ? monthlySurplus : 25000;
-        const ratio = requiredMonthlySavings / effectiveSurplus;
+        const ratio = requiredMonthlySavings / monthlySurplus;
 
         if (progressPercent >= 50) {
           // Goals >= 50% funded:
@@ -96,19 +106,20 @@ export async function GET(req: Request) {
         }
       }
 
-      // Projected completion date at current surplus rate
+      // Projected completion date
       let projectedDate: string | null = null;
       if (current >= target) {
         projectedDate = "Completed";
-      } else {
-        const effectiveRate = monthlySurplus > 0 ? monthlySurplus : 25000;
-        const projectedMonthsNeeded = Math.ceil(remaining / effectiveRate);
+      } else if (isSufficientData && monthlySurplus > 0) {
+        const projectedMonthsNeeded = Math.ceil(remaining / monthlySurplus);
         const projDateObj = new Date(now);
         projDateObj.setMonth(projDateObj.getMonth() + projectedMonthsNeeded);
         projectedDate = projDateObj.toLocaleDateString("en-US", {
           month: "short",
           year: "numeric",
         });
+      } else {
+        projectedDate = "Insufficient Income History";
       }
 
       return {
@@ -126,6 +137,7 @@ export async function GET(req: Request) {
       monthlySurplus,
       totalIncome,
       totalExpense,
+      isSufficientData,
     });
   } catch (error: any) {
     console.error("GET /api/goals error:", error);
