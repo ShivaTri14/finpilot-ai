@@ -60,7 +60,6 @@ export default function PdfUploaderModal({
         body: formData,
       });
 
-      // Safe non-JSON & 504 Timeout handling
       if (res.status === 504) {
         setError("Server took too long processing this file — try a smaller statement or contact support.");
         return;
@@ -83,7 +82,13 @@ export default function PdfUploaderModal({
       if (!res.ok) {
         setError(data.error || "Failed to parse PDF file.");
       } else {
-        setParsedRows(data.rows || []);
+        const rows = data.rows || [];
+        if (rows.length === 0) {
+          // Zero-row Warning Banner (Ensures empty row responses are never silent!)
+          setError("No transactions could be extracted from this file. This may be an unsupported format or a scanned/image-only PDF — try a different file or use Manual Entry.");
+        } else {
+          setParsedRows(rows);
+        }
       }
     } catch (err: any) {
       setError("Server took too long processing this file — try a smaller statement or contact support.");
@@ -150,8 +155,8 @@ export default function PdfUploaderModal({
         {/* Content Body */}
         <div className="p-6 space-y-6 overflow-y-auto flex-1">
           {error && (
-            <div className="p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-400 text-xs flex items-center gap-2">
-              <AlertCircle className="h-4 w-4 shrink-0 text-rose-400" />
+            <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs flex items-center gap-2">
+              <AlertCircle className="h-4 w-4 shrink-0 text-amber-400" />
               <span>{error}</span>
             </div>
           )}

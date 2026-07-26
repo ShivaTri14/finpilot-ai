@@ -2,17 +2,16 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { EXPENSE_CATEGORIES } from "@/lib/constants";
 
 // Enable maximum serverless execution time for bulk statement uploads
 export const maxDuration = 60;
 
 // Fast in-memory rule dictionary for bulk statement categorization
 const FAST_KEYWORD_RULES: Record<string, string[]> = {
-  "Food & Dining": ["swiggy", "zomato", "mcdonald", "starbucks", "restaurant", "cafe", "pizza", "burger", "kfc", "domino", "subway", "bar", "diner", "coffee", "baking", "bakery", "fast food", "hotel", "canteen", "eatery", "tiffin"],
+  "Food & Dining": ["swiggy", "zomato", "mcdonald", "starbucks", "restaurant", "cafe", "pizza", "burger", "kfc", "domino", "subway", "bar", "diner", "coffee", "baking", "bakery", "fast food", "hotel", "canteen", "eatery", "tiffin", "food"],
   Transportation: ["uber", "ola", "rapido", "metro", "cab", "taxi", "train", "irctc", "transit", "toll", "auto", "bus", "fastag", "parking"],
   Shopping: ["amazon", "flipkart", "myntra", "zara", "h&m", "retail", "shopping", "store", "mall", "fashion", "apparel", "clothing", "meesho", "ajio", "trends", "pantaloons", "decathlon"],
-  Bills: ["electricity", "water", "gas", "broadband", "wifi", "recharge", "mobile bill", "airtel", "jio", "vi", "bescom", "utility", "postpaid", "dth", "tata play", "electricity bill", "power"],
+  Bills: ["electricity", "water", "gas", "broadband", "wifi", "recharge", "mobile bill", "airtel", "jio", "vi", "bescom", "utility", "postpaid", "dth", "tata play", "electricity bill", "power", "bill"],
   Entertainment: ["netflix", "spotify", "bookmyshow", "cinema", "movie", "hotstar", "prime video", "playstation", "steam", "theatre", "concert", "gaming", "pvr", "inox"],
   Healthcare: ["pharmacy", "apollo", "medplus", "hospital", "doctor", "clinic", "lab", "pharmeasy", "medical", "health", "diagnostic", "dental", "chemist"],
   Travel: ["makemytrip", "indigo", "flight", "hotel", "airbnb", "booking.com", "goibibo", "resort", "trip", "airline", "stay", "cleartrip"],
@@ -22,6 +21,22 @@ const FAST_KEYWORD_RULES: Record<string, string[]> = {
   Investment: ["zerodha", "groww", "mutual fund", "sip", "equity", "coin", "stocks", "kite", "angelone", "upstox", "indmoney", "ppf", "fd", "nps", "smallcase"],
   Insurance: ["hdfc ergo", "lic", "insurance", "max bupa", "policybazaar", "premium", "term plan", "health shield", "acko", "care health"],
 };
+
+// Deterministic date string formatter (prevents UTC timezone shifts)
+function parseMonthYearDay(rawDateStr: string): string {
+  const months: Record<string, string> = {
+    jan: "01", feb: "02", mar: "03", apr: "04", may: "05", jun: "06",
+    jul: "07", aug: "08", sep: "09", oct: "10", nov: "11", dec: "12"
+  };
+  const m = rawDateStr.match(/(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+(\d{1,2}),?\s+(\d{4})/i);
+  if (m) {
+    const mon = months[m[1].toLowerCase()] || "01";
+    const day = m[2].padStart(2, "0");
+    const yr = m[3];
+    return `${yr}-${mon}-${day}`;
+  }
+  return new Date().toISOString().split("T")[0];
+}
 
 export async function POST(req: Request) {
   const startTime = Date.now();
@@ -55,7 +70,11 @@ export async function POST(req: Request) {
       pdfText = buffer.toString("utf-8");
     }
 
-    // Single batch query for all user merchant overrides (0 sequential queries inside the loop!)
+    // 1. GLOBAL TEXT NORMALIZATION BEFORE LINE-SPLITTING
+    // Replace all non-breaking spaces (\u00A0) and exotic whitespace characters globally with standard spaces
+    const normalizedPdfText = pdfText.replace(/[\u00A0\u1680\u180e\u2000-\u200b\u202f\u205f\u3000\ufeff]/g, " ");
+
+    // Fetch batch user merchant overrides (0 sequential queries inside the loop!)
     const userOverrides = await prisma.merchantOverride.findMany({
       where: { userId },
     });
@@ -64,34 +83,26 @@ export async function POST(req: Request) {
       overrideMap[o.merchant.toLowerCase().trim()] = o.category;
     });
 
-    // Fast in-memory categorization function (Instant: <0.01ms per row, 0 network calls!)
     const fastCategorize = (desc: string): string => {
       if (!desc) return "Miscellaneous";
       const normalized = desc.toLowerCase().trim();
 
-      // 1. Check batch-loaded user merchant override map
-      if (overrideMap[normalized]) {
-        return overrideMap[normalized];
-      }
+      if (overrideMap[normalized]) return overrideMap[normalized];
       for (const [m, cat] of Object.entries(overrideMap)) {
         if (normalized.includes(m)) return cat;
       }
 
-      // 2. Fast in-memory rule dictionary match
       for (const [cat, keywords] of Object.entries(FAST_KEYWORD_RULES)) {
         for (const kw of keywords) {
-          if (normalized.includes(kw)) {
-            return cat;
-          }
+          if (normalized.includes(kw)) return cat;
         }
       }
 
-      // 3. Default to "Miscellaneous" (User can quickly edit via confirmation table dropdown)
       return "Miscellaneous";
     };
 
-    // Split entire multi-page PDF text into raw lines
-    const rawLines = pdfText.split("\n");
+    // Split text into lines, trim each line
+    const rawLines = normalizedPdfText.split("\n").map((l) => l.trim()).filter(Boolean);
     const extractedRows: Array<{
       date: string;
       description: string;
@@ -102,17 +113,14 @@ export async function POST(req: Request) {
       source: string;
     }> = [];
 
-    // Real PhonePe PDF Statement Block Parser
-    // Block Date Header: "Jul 24, 2026 08:27 pm" or "Jul 24, 2026"
-    // Transaction Line: "Paid to Rajesh fast food DEBIT ₹13 Transaction ID T... UTR No. ... Paid by XXXXXX2985"
-    // Credit Line: "Received from Mr Saurabh Mishra CREDIT ₹1,000 Transaction ID T... UTR No. ... Credited to XXXXXX2985"
-    const phonepeDateRegex = /^([A-Z][a-z]{2}\s+\d{1,2},\s+\d{4})/i;
+    // Robust Date Header Pattern (No rigid '^' anchor)
+    const phonepeDateRegex = /(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2},\s+\d{4}/i;
 
     let currentDateStr = new Date().toISOString().split("T")[0];
 
+    // 2. PRIMARY LINE-BY-LINE BLOCK SCANNER
     for (let i = 0; i < rawLines.length; i++) {
-      const line = rawLines[i].trim();
-      if (!line) continue;
+      const line = rawLines[i];
 
       // Filter out header/footer noise
       if (
@@ -122,22 +130,14 @@ export async function POST(req: Request) {
         continue;
       }
 
-      // Check if line is a Date Header
+      // Check if line contains a Date Header
       const dateMatch = line.match(phonepeDateRegex);
       if (dateMatch) {
-        const rawDate = dateMatch[1]; // e.g. "Jul 24, 2026"
-        try {
-          const parsedD = new Date(rawDate);
-          if (!isNaN(parsedD.getTime())) {
-            currentDateStr = parsedD.toISOString().split("T")[0];
-          }
-        } catch (e) {
-          currentDateStr = new Date().toISOString().split("T")[0];
-        }
+        currentDateStr = parseMonthYearDay(dateMatch[0]);
         continue;
       }
 
-      // Check for PhonePe Paid to / Received from transaction line
+      // Check for PhonePe Paid to / Received from line (no rigid '^' anchor)
       const paidToMatch = line.match(/(?:Paid to|Received from)\s+(.+?)\s+(DEBIT|CREDIT)\s+[₹$€£]?\s*([\d,]+(?:\.\d{1,2})?)/i);
 
       if (paidToMatch) {
@@ -150,7 +150,6 @@ export async function POST(req: Request) {
         const description = rawPayee || "PhonePe Transaction";
 
         if (!isNaN(amount) && amount > 0) {
-          // Instant in-memory categorization (<0.01ms, zero network/LLM calls)
           const category = fastCategorize(description);
 
           extractedRows.push({
@@ -166,8 +165,39 @@ export async function POST(req: Request) {
       }
     }
 
+    // 3. FALLBACK FULL-TEXT BLOCK SCANNER (If line-by-line misses rows due to line-breaks)
+    if (extractedRows.length === 0) {
+      const blockRegex = /(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec\s+\d{1,2},\s+\d{4})[\s\S]*?(?:Paid to|Received from)\s+(.+?)\s+(DEBIT|CREDIT)\s+[₹$€£]?\s*([\d,]+(?:\.\d{1,2})?)/gi;
+      let bMatch;
+      while ((bMatch = blockRegex.exec(normalizedPdfText)) !== null) {
+        const dateStr = parseMonthYearDay(bMatch[1]);
+        const description = bMatch[2].trim();
+        const typeStr = bMatch[3].toUpperCase();
+        const amount = parseFloat(bMatch[4].replace(/,/g, ""));
+
+        if (!isNaN(amount) && amount > 0) {
+          extractedRows.push({
+            date: dateStr,
+            description,
+            amount,
+            type: typeStr === "CREDIT" ? "credit" : "debit",
+            category: fastCategorize(description),
+            paymentMethod: "PhonePe Statement PDF",
+            source: "PDF_UPLOAD",
+          });
+        }
+      }
+    }
+
     const durationMs = Date.now() - startTime;
-    console.log(`[PDF BATCH PARSER SUCCESS] Extracted ${extractedRows.length} rows across ${numPages} pages in ${durationMs}ms`);
+
+    // 4. PERMANENT LIGHTWEIGHT SUMMARY LOG
+    console.log("[PDF STATEMENT PARSER SUMMARY]", {
+      numPages,
+      pdfTextLength: pdfText.length,
+      extractedRowCount: extractedRows.length,
+      durationMs,
+    });
 
     return NextResponse.json({
       message: `Successfully extracted ${extractedRows.length} transactions from PhonePe PDF statement across ${numPages} pages in ${durationMs}ms`,
