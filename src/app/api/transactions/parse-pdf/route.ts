@@ -3,7 +3,6 @@ import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
-// Require pdf-parse core library directly to bypass index.js default test file check
 const pdfParse = require("pdf-parse/lib/pdf-parse.js");
 
 // Enable maximum serverless execution time for bulk statement uploads
@@ -142,6 +141,11 @@ export async function POST(req: Request) {
     }> = [];
 
     const phonepeDateRegex = /(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2},\s+\d{4}/i;
+    // Regex Pattern A: "DEBIT₹13Paid to Rajesh fast food" or "CREDIT₹1,000Received from Mr Saurabh Mishra"
+    const regexPatternA = /(DEBIT|CREDIT)\s*[₹$€£]?\s*([\d,]+(?:\.\d{1,2})?)\s*(?:Paid to|Received from)\s+(.+)/i;
+    // Regex Pattern B: "Paid to Rajesh fast food DEBIT ₹13"
+    const regexPatternB = /(?:Paid to|Received from)\s+(.+?)\s+(DEBIT|CREDIT)\s+[₹$€£]?\s*([\d,]+(?:\.\d{1,2})?)/i;
+
     let currentDateStr = new Date().toISOString().split("T")[0];
 
     for (let i = 0; i < rawLines.length; i++) {
@@ -160,12 +164,37 @@ export async function POST(req: Request) {
         continue;
       }
 
-      const paidToMatch = line.match(/(?:Paid to|Received from)\s+(.+?)\s+(DEBIT|CREDIT)\s+[₹$€£]?\s*([\d,]+(?:\.\d{1,2})?)/i);
+      const matchA = line.match(regexPatternA);
+      if (matchA) {
+        const typeKeyword = matchA[1].toUpperCase();
+        const rawAmount = matchA[2].replace(/,/g, "");
+        const rawPayee = matchA[3].trim();
+        const amount = parseFloat(rawAmount);
 
-      if (paidToMatch) {
-        const rawPayee = paidToMatch[1].trim();
-        const typeKeyword = paidToMatch[2].toUpperCase();
-        const rawAmount = paidToMatch[3].replace(/,/g, "");
+        const type: "debit" | "credit" = typeKeyword === "CREDIT" ? "credit" : "debit";
+        const description = rawPayee || "PhonePe Transaction";
+
+        if (!isNaN(amount) && amount > 0) {
+          const category = fastCategorize(description);
+
+          extractedRows.push({
+            date: currentDateStr,
+            description,
+            amount,
+            type,
+            category,
+            paymentMethod: "PhonePe Statement PDF",
+            source: "PDF_UPLOAD",
+          });
+        }
+        continue;
+      }
+
+      const matchB = line.match(regexPatternB);
+      if (matchB) {
+        const rawPayee = matchB[1].trim();
+        const typeKeyword = matchB[2].toUpperCase();
+        const rawAmount = matchB[3].replace(/,/g, "");
         const amount = parseFloat(rawAmount);
 
         const type: "debit" | "credit" = typeKeyword === "CREDIT" ? "credit" : "debit";
@@ -188,13 +217,13 @@ export async function POST(req: Request) {
     }
 
     if (extractedRows.length === 0) {
-      const blockRegex = /(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec\s+\d{1,2},\s+\d{4})[\s\S]*?(?:Paid to|Received from)\s+(.+?)\s+(DEBIT|CREDIT)\s+[₹$€£]?\s*([\d,]+(?:\.\d{1,2})?)/gi;
+      const blockRegex = /(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec\s+\d{1,2},\s+\d{4})[\s\S]*?(DEBIT|CREDIT)\s*[₹$€£]?\s*([\d,]+(?:\.\d{1,2})?)\s*(?:Paid to|Received from)\s+(.+)/gi;
       let bMatch;
       while ((bMatch = blockRegex.exec(normalizedPdfText)) !== null) {
         const dateStr = parseMonthYearDay(bMatch[1]);
-        const description = bMatch[2].trim();
-        const typeStr = bMatch[3].toUpperCase();
-        const amount = parseFloat(bMatch[4].replace(/,/g, ""));
+        const typeStr = bMatch[2].toUpperCase();
+        const amount = parseFloat(bMatch[3].replace(/,/g, ""));
+        const description = bMatch[4].trim();
 
         if (!isNaN(amount) && amount > 0) {
           extractedRows.push({
