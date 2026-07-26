@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Upload, FileText, CheckCircle, AlertCircle, Loader2, X, Plus } from "lucide-react";
+import { Upload, FileText, CheckCircle, AlertCircle, Loader2, X, Plus, Terminal } from "lucide-react";
 import { EXPENSE_CATEGORIES } from "@/lib/constants";
 
 interface ParsedRow {
@@ -32,6 +32,7 @@ export default function PdfUploaderModal({
   const [saving, setSaving] = useState(false);
   const [parsedRows, setParsedRows] = useState<ParsedRow[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [debugData, setDebugData] = useState<{ rawTextPreview: string; rawTextLength: number; charCodeDump: any[] } | null>(null);
 
   if (!isOpen) return null;
 
@@ -39,6 +40,7 @@ export default function PdfUploaderModal({
     if (e.target.files && e.target.files[0]) {
       setFile(e.target.files[0]);
       setError(null);
+      setDebugData(null);
     }
   };
 
@@ -50,12 +52,14 @@ export default function PdfUploaderModal({
 
     setParsing(true);
     setError(null);
+    setDebugData(null);
 
     const formData = new FormData();
     formData.append("file", file);
 
     try {
-      const res = await fetch("/api/transactions/parse-pdf", {
+      // Append ?debug=1 to request debug payload
+      const res = await fetch("/api/transactions/parse-pdf?debug=1", {
         method: "POST",
         body: formData,
       });
@@ -79,13 +83,22 @@ export default function PdfUploaderModal({
         return;
       }
 
+      if (data.isDebug) {
+        console.log("[DEBUG MODE RAW TEXT PREVIEW]:", data.rawTextPreview);
+        console.log("[DEBUG MODE CHAR CODE DUMP]:", data.charCodeDump);
+        setDebugData({
+          rawTextPreview: data.rawTextPreview,
+          rawTextLength: data.rawTextLength,
+          charCodeDump: data.charCodeDump,
+        });
+      }
+
       if (!res.ok) {
         setError(data.error || "Failed to parse PDF file.");
       } else {
         const rows = data.rows || [];
         if (rows.length === 0) {
-          // Zero-row Warning Banner (Ensures empty row responses are never silent!)
-          setError("No transactions could be extracted from this file. This may be an unsupported format or a scanned/image-only PDF — try a different file or use Manual Entry.");
+          setError("No transactions could be extracted from this file. This may be an unsupported format or a scanned/image-only PDF — see debug dump below.");
         } else {
           setParsedRows(rows);
         }
@@ -123,6 +136,7 @@ export default function PdfUploaderModal({
         onClose();
         setParsedRows([]);
         setFile(null);
+        setDebugData(null);
       } else {
         setError("Failed to save confirmed transactions.");
       }
@@ -143,7 +157,7 @@ export default function PdfUploaderModal({
               <FileText className="h-5 w-5" />
             </div>
             <div>
-              <h2 className="text-lg font-bold text-white">Bank Statement PDF Extraction</h2>
+              <h2 className="text-lg font-bold text-white">Bank Statement PDF Extraction (Debug Mode Active)</h2>
               <p className="text-xs text-slate-400">Extract, review, & confirm transaction rows before saving</p>
             </div>
           </div>
@@ -158,6 +172,26 @@ export default function PdfUploaderModal({
             <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs flex items-center gap-2">
               <AlertCircle className="h-4 w-4 shrink-0 text-amber-400" />
               <span>{error}</span>
+            </div>
+          )}
+
+          {debugData && (
+            <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-3">
+              <div className="flex items-center justify-between text-xs font-bold text-cyan-400">
+                <span className="flex items-center gap-1.5">
+                  <Terminal className="h-4 w-4" />
+                  RAW DEBUG PREVIEW ({debugData.rawTextLength} chars extracted)
+                </span>
+                <span className="text-slate-500">First 3,000 chars visible</span>
+              </div>
+              <textarea
+                readOnly
+                value={debugData.rawTextPreview}
+                className="w-full h-40 bg-black/80 border border-slate-800 rounded-xl p-3 font-mono text-[11px] text-slate-300 focus:outline-none"
+              />
+              <div className="text-[10px] text-slate-500">
+                First 10 Char Codes: {JSON.stringify(debugData.charCodeDump.slice(0, 10))}
+              </div>
             </div>
           )}
 
@@ -190,7 +224,7 @@ export default function PdfUploaderModal({
                     ) : (
                       <>
                         <FileText className="h-4 w-4" />
-                        <span>Extract Transactions</span>
+                        <span>Extract Transactions (Debug)</span>
                       </>
                     )}
                   </button>

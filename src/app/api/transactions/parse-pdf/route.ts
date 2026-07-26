@@ -22,7 +22,6 @@ const FAST_KEYWORD_RULES: Record<string, string[]> = {
   Insurance: ["hdfc ergo", "lic", "insurance", "max bupa", "policybazaar", "premium", "term plan", "health shield", "acko", "care health"],
 };
 
-// Deterministic date string formatter (prevents UTC timezone shifts)
 function parseMonthYearDay(rawDateStr: string): string {
   const months: Record<string, string> = {
     jan: "01", feb: "02", mar: "03", apr: "04", may: "05", jun: "06",
@@ -47,6 +46,9 @@ export async function POST(req: Request) {
     }
 
     const userId = (session.user as any).id;
+    const url = new URL(req.url);
+    const isDebug = url.searchParams.get("debug") === "1" || url.searchParams.has("debug");
+
     const formData = await req.formData();
     const file = formData.get("file") as File;
 
@@ -70,11 +72,30 @@ export async function POST(req: Request) {
       pdfText = buffer.toString("utf-8");
     }
 
-    // 1. GLOBAL TEXT NORMALIZATION BEFORE LINE-SPLITTING
-    // Replace all non-breaking spaces (\u00A0) and exotic whitespace characters globally with standard spaces
+    // DEBUG MODE RAW TEXT & CHAR CODE DUMP GENERATION
+    let rawTextPreview = "";
+    let charCodeDump: Array<{ index: number; char: string; code: number }> = [];
+
+    if (isDebug) {
+      const slice = pdfText.substring(0, 3000);
+      rawTextPreview = slice
+        .replace(/\r/g, "\\r")
+        .replace(/\n/g, "\\n\n")
+        .replace(/\t/g, "\\t")
+        .replace(/\u00A0/g, "[NBSP]")
+        .replace(/[\u1680\u180e\u2000-\u200b\u202f\u205f\u3000\ufeff]/g, (m) => `[U+${m.charCodeAt(0).toString(16).toUpperCase()}]`);
+
+      const dumpSlice = pdfText.substring(0, 200);
+      charCodeDump = Array.from(dumpSlice).map((char, index) => ({
+        index,
+        char: char === "\n" ? "\\n" : char === "\r" ? "\\r" : char === "\t" ? "\\t" : char === "\u00A0" ? "[NBSP]" : char,
+        code: char.charCodeAt(0),
+      }));
+    }
+
+    // Text Normalization
     const normalizedPdfText = pdfText.replace(/[\u00A0\u1680\u180e\u2000-\u200b\u202f\u205f\u3000\ufeff]/g, " ");
 
-    // Fetch batch user merchant overrides (0 sequential queries inside the loop!)
     const userOverrides = await prisma.merchantOverride.findMany({
       where: { userId },
     });
@@ -101,7 +122,6 @@ export async function POST(req: Request) {
       return "Miscellaneous";
     };
 
-    // Split text into lines, trim each line
     const rawLines = normalizedPdfText.split("\n").map((l) => l.trim()).filter(Boolean);
     const extractedRows: Array<{
       date: string;
@@ -113,16 +133,12 @@ export async function POST(req: Request) {
       source: string;
     }> = [];
 
-    // Robust Date Header Pattern (No rigid '^' anchor)
     const phonepeDateRegex = /(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2},\s+\d{4}/i;
-
     let currentDateStr = new Date().toISOString().split("T")[0];
 
-    // 2. PRIMARY LINE-BY-LINE BLOCK SCANNER
     for (let i = 0; i < rawLines.length; i++) {
       const line = rawLines[i];
 
-      // Filter out header/footer noise
       if (
         /page \d+ of \d+/i.test(line) ||
         /phonepe transaction statement|support\.phonepe\.com|transaction details/i.test(line)
@@ -130,14 +146,12 @@ export async function POST(req: Request) {
         continue;
       }
 
-      // Check if line contains a Date Header
       const dateMatch = line.match(phonepeDateRegex);
       if (dateMatch) {
         currentDateStr = parseMonthYearDay(dateMatch[0]);
         continue;
       }
 
-      // Check for PhonePe Paid to / Received from line (no rigid '^' anchor)
       const paidToMatch = line.match(/(?:Paid to|Received from)\s+(.+?)\s+(DEBIT|CREDIT)\s+[₹$€£]?\s*([\d,]+(?:\.\d{1,2})?)/i);
 
       if (paidToMatch) {
@@ -165,7 +179,6 @@ export async function POST(req: Request) {
       }
     }
 
-    // 3. FALLBACK FULL-TEXT BLOCK SCANNER (If line-by-line misses rows due to line-breaks)
     if (extractedRows.length === 0) {
       const blockRegex = /(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec\s+\d{1,2},\s+\d{4})[\s\S]*?(?:Paid to|Received from)\s+(.+?)\s+(DEBIT|CREDIT)\s+[₹$€£]?\s*([\d,]+(?:\.\d{1,2})?)/gi;
       let bMatch;
@@ -191,18 +204,24 @@ export async function POST(req: Request) {
 
     const durationMs = Date.now() - startTime;
 
-    // 4. PERMANENT LIGHTWEIGHT SUMMARY LOG
     console.log("[PDF STATEMENT PARSER SUMMARY]", {
       numPages,
       pdfTextLength: pdfText.length,
       extractedRowCount: extractedRows.length,
       durationMs,
+      isDebug,
     });
 
     return NextResponse.json({
       message: `Successfully extracted ${extractedRows.length} transactions from PhonePe PDF statement across ${numPages} pages in ${durationMs}ms`,
       rows: extractedRows,
       durationMs,
+      ...(isDebug && {
+        isDebug: true,
+        rawTextLength: pdfText.length,
+        rawTextPreview,
+        charCodeDump,
+      }),
     });
   } catch (error: any) {
     console.error("PDF parse error:", error);
