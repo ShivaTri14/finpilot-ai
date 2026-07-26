@@ -70,31 +70,26 @@ export default function PdfUploaderModal({
       }
 
       let data: any = {};
-      const contentType = res.headers.get("content-type");
-      if (contentType && contentType.includes("application/json")) {
-        try {
-          data = await res.json();
-        } catch (jsonErr) {
-          setError("Failed to parse server response.");
-          return;
-        }
-      } else {
-        setError("Server returned invalid response format. Please try again.");
+      try {
+        data = await res.json();
+      } catch (jsonErr) {
+        const text = await res.text().catch(() => "");
+        setError(`Server response error (${res.status}): ${text.substring(0, 200) || "Invalid response format"}`);
         return;
       }
 
-      if (data.isDebug) {
+      if (data.isDebug || data.rawTextPreview) {
         console.log("[DEBUG MODE RAW TEXT PREVIEW]:", data.rawTextPreview);
         console.log("[DEBUG MODE CHAR CODE DUMP]:", data.charCodeDump);
         setDebugData({
-          rawTextPreview: data.rawTextPreview,
-          rawTextLength: data.rawTextLength,
-          charCodeDump: data.charCodeDump,
+          rawTextPreview: data.rawTextPreview || data.error || "No preview text returned",
+          rawTextLength: data.rawTextLength || 0,
+          charCodeDump: data.charCodeDump || [],
         });
       }
 
       if (!res.ok) {
-        setError(data.error || "Failed to parse PDF file.");
+        setError(data.error || `Server returned error status ${res.status}`);
       } else {
         const rows = data.rows || [];
         if (rows.length === 0) {
@@ -104,7 +99,7 @@ export default function PdfUploaderModal({
         }
       }
     } catch (err: any) {
-      setError("Server took too long processing this file — try a smaller statement or contact support.");
+      setError(`Extraction error: ${err.message || "An unexpected network error occurred."}`);
     } finally {
       setParsing(false);
     }
@@ -189,7 +184,7 @@ export default function PdfUploaderModal({
                 value={debugData.rawTextPreview}
                 className="w-full h-40 bg-black/80 border border-slate-800 rounded-xl p-3 font-mono text-[11px] text-slate-300 focus:outline-none"
               />
-              <div className="text-[10px] text-slate-500">
+              <div className="text-[10px] text-slate-500 overflow-x-auto">
                 First 10 Char Codes: {JSON.stringify(debugData.charCodeDump.slice(0, 10))}
               </div>
             </div>
