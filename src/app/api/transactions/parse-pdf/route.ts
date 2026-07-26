@@ -2,7 +2,9 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import * as pdfjs from "pdfjs-dist/legacy/build/pdf.mjs";
+
+// Require pdf-parse core library directly to bypass index.js default test file check
+const pdfParse = require("pdf-parse/lib/pdf-parse.js");
 
 // Enable maximum serverless execution time for bulk statement uploads
 export const maxDuration = 60;
@@ -38,29 +40,6 @@ function parseMonthYearDay(rawDateStr: string): string {
   return new Date().toISOString().split("T")[0];
 }
 
-async function extractPdfTextWithPdfJs(buffer: Buffer): Promise<{ text: string; numPages: number }> {
-  const data = new Uint8Array(buffer);
-  const loadingTask = pdfjs.getDocument({
-    data,
-    useSystemFonts: true,
-    disableFontFace: true,
-  });
-  const pdfDoc = await loadingTask.promise;
-  const numPages = pdfDoc.numPages;
-  let fullText = "";
-
-  for (let i = 1; i <= numPages; i++) {
-    const page = await pdfDoc.getPage(i);
-    const textContent = await page.getTextContent();
-    const pageText = textContent.items
-      .map((item: any) => item.str || "")
-      .join(" ");
-    fullText += `\n--- Page ${i} ---\n` + pageText;
-  }
-
-  return { text: fullText, numPages };
-}
-
 export async function POST(req: Request) {
   const startTime = Date.now();
   try {
@@ -86,20 +65,18 @@ export async function POST(req: Request) {
     let pdfText = "";
     let numPages = 1;
 
-    // Pure Serverless-friendly pdfjs-dist extraction
     try {
-      const extracted = await extractPdfTextWithPdfJs(buffer);
-      pdfText = extracted.text;
-      numPages = extracted.numPages;
+      const parsedPdf = await pdfParse(buffer);
+      pdfText = parsedPdf.text || "";
+      numPages = parsedPdf.numpages || 1;
     } catch (e: any) {
-      console.error("[PDFJS EXTRACT FATAL ERROR]", e.message, e.stack);
+      console.error("[PDF PARSE ERROR]", e.message);
       return NextResponse.json(
         {
-          error: `PDF text extraction failed: ${e.message || String(e)}`,
+          error: `PDF text extraction error: ${e.message || String(e)}`,
           pdfParseError: e.message || String(e),
-          pdfParseStack: e.stack || "",
         },
-        { status: 500 }
+        { status: 400 }
       );
     }
 
