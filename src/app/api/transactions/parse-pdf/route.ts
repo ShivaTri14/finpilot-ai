@@ -3,6 +3,9 @@ import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
+// Safe CommonJS require for Next.js App Router serverless environment
+const PdfParse = require("pdf-parse");
+
 // Enable maximum serverless execution time for bulk statement uploads
 export const maxDuration = 60;
 
@@ -62,14 +65,21 @@ export async function POST(req: Request) {
     let pdfText = "";
     let numPages = 1;
 
+    // NO SILENT FALLBACK TO RAW BINARY BUFFER!
     try {
-      const pdf = require("pdf-parse");
-      const parsedPdf = await pdf(buffer);
+      const parsedPdf = await PdfParse(buffer);
       pdfText = parsedPdf.text || "";
       numPages = parsedPdf.numpages || 1;
-    } catch (e) {
-      console.warn("pdf-parse extraction fallback:", e);
-      pdfText = buffer.toString("utf-8");
+    } catch (e: any) {
+      console.error("[PDF PARSE FATAL ERROR]", e.message, e.stack);
+      return NextResponse.json(
+        {
+          error: `PDF text extraction failed: ${e.message || String(e)}`,
+          pdfParseError: e.message || String(e),
+          pdfParseStack: e.stack || "",
+        },
+        { status: 500 }
+      );
     }
 
     // DEBUG MODE RAW TEXT & CHAR CODE DUMP GENERATION
@@ -225,6 +235,6 @@ export async function POST(req: Request) {
     });
   } catch (error: any) {
     console.error("PDF parse error:", error);
-    return NextResponse.json({ error: "Failed to parse PDF statement" }, { status: 500 });
+    return NextResponse.json({ error: `Failed to parse PDF statement: ${error.message || String(error)}` }, { status: 500 });
   }
 }
