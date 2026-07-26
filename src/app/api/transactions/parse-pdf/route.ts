@@ -48,9 +48,6 @@ export async function POST(req: Request) {
     }
 
     const userId = (session.user as any).id;
-    const url = new URL(req.url);
-    const isDebug = url.searchParams.get("debug") === "1" || url.searchParams.has("debug");
-
     const formData = await req.formData();
     const file = formData.get("file") as File;
 
@@ -79,28 +76,7 @@ export async function POST(req: Request) {
       );
     }
 
-    // DEBUG MODE RAW TEXT PREVIEW & CHAR CODE DUMP
-    let rawTextPreview = "";
-    let charCodeDump: Array<{ index: number; char: string; code: number }> = [];
-
-    if (isDebug) {
-      const slice = pdfText.substring(0, 3000);
-      rawTextPreview = slice
-        .replace(/\r/g, "\\r")
-        .replace(/\n/g, "\\n\n")
-        .replace(/\t/g, "\\t")
-        .replace(/\u00A0/g, "[NBSP]")
-        .replace(/[\u1680\u180e\u2000-\u200b\u202f\u205f\u3000\ufeff]/g, (m) => `[U+${m.charCodeAt(0).toString(16).toUpperCase()}]`);
-
-      const dumpSlice = pdfText.substring(0, 200);
-      charCodeDump = Array.from(dumpSlice).map((char, index) => ({
-        index,
-        char: char === "\n" ? "\\n" : char === "\r" ? "\\r" : char === "\t" ? "\\t" : char === "\u00A0" ? "[NBSP]" : char,
-        code: char.charCodeAt(0),
-      }));
-    }
-
-    // Text Normalization
+    // Global Text Normalization
     const normalizedPdfText = pdfText.replace(/[\u00A0\u1680\u180e\u2000-\u200b\u202f\u205f\u3000\ufeff]/g, " ");
 
     const userOverrides = await prisma.merchantOverride.findMany({
@@ -246,19 +222,12 @@ export async function POST(req: Request) {
       pdfTextLength: pdfText.length,
       extractedRowCount: extractedRows.length,
       durationMs,
-      isDebug,
     });
 
     return NextResponse.json({
       message: `Successfully extracted ${extractedRows.length} transactions from PhonePe PDF statement across ${numPages} pages in ${durationMs}ms`,
       rows: extractedRows,
       durationMs,
-      ...(isDebug && {
-        isDebug: true,
-        rawTextLength: pdfText.length,
-        rawTextPreview,
-        charCodeDump,
-      }),
     });
   } catch (error: any) {
     console.error("PDF parse error:", error);
